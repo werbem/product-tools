@@ -315,7 +315,7 @@ async def download_report(task_id: UUID):
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Word文件生成失败: {e}")
 
-    filename = f"竞品分析报告_{task_id[:8]}.docx"
+    filename = f"竞品分析报告_{str(task_id)[:8]}.docx"
     return StreamingResponse(
         BytesIO(docx_bytes),
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",

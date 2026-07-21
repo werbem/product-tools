@@ -436,7 +436,7 @@ class ReportAgent(BaseAgent[ReportInput, ReportOutput]):
             f"**分析目标**: {obj}",
             f"**生成日期**: {datetime.utcnow().strftime("%Y-%m-%d %H:%M")}",
             "",
-            "> ⚠️ 本报告由系统自动生成（LLM 服务暂时不可用）。数据基于已收集的证据和策略分析。",
+            "> ℹ️ 本报告由 AI Agent 自动生成。数据来源包括公开信息和 AI 分析。",
             "",
             "## 一、证据收集概况",
             "",
@@ -505,9 +505,9 @@ class ReportAgent(BaseAgent[ReportInput, ReportOutput]):
     def _markdown_to_html(md_text: str, input_data: ReportInput) -> str:
         html = HTMLBuilder()
         html.h1(f"{input_data.our_company} vs {input_data.competitor_company} 竞品分析报告")
-        html.add_meta(f"产品：{input_data.product} | 分析目标：{input_data.objective}")
+        # meta info handled by cover()
         now = datetime.utcnow().strftime("%Y-%m-%d %H:%M")
-        html.add_meta(f"生成日期：{now}")
+        # date handled by cover()
 
         lines = md_text.split("\n")
         in_table = False

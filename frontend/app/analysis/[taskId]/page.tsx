@@ -324,15 +324,19 @@ export default function AnalysisProgressPage({
         if (status === "completed" || status === "reviewed") {
           clearInterval(interval);
           clearTimeout(timeout);
-          // Try to fetch report first
-          try {
-            const res = await fetch(`/api/reports/${state.serverTaskId}`);
-            if (res.ok) {
-              setState({ type: "completed", taskId: state.serverTaskId });
-              router.push(`/report/${state.serverTaskId}`);
-              return;
-            }
-          } catch {}
+          setProgress(100);
+          setEta("");
+          // Save to history on completion
+          const p = payloadRef.current;
+          saveToHistory({
+            taskId: state.serverTaskId,
+            ourCompany: p?.our_company || "",
+            competitorCompany: p?.competitor_company || "",
+            product: p?.product || "",
+            objective: p?.objective || "",
+          });
+          setState({ type: "completed", taskId: state.serverTaskId });
+          router.push(`/report/${state.serverTaskId}`);
           setState({ type: "error", message: data.error_info || "报告生成失败" });
         } else if (status === "failed" || status === "review_failed" || status === "validation_failed") {
           clearInterval(interval);
