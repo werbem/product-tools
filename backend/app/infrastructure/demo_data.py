@@ -380,8 +380,16 @@ def build_demo_full_state(task_id: str) -> dict:
         "insights": build_demo_insights(),
         "strategic_insights": build_demo_strategic(),
         "report_document": {
-            "markdown": build_demo_report_markdown(),
-            "format": "markdown",
+            "formats": {
+                "markdown": build_demo_report_markdown(),
+                "html": None,
+                "docx_url": None,
+            },
+            "sections": [],
+            "metadata": {
+                "total_word_count": len(build_demo_report_markdown().split()),
+                "generated_at": now,
+            },
             "title": "竞品分析报告：抖音 vs 快手",
         },
         "review_result": build_demo_review_result(),
@@ -390,9 +398,15 @@ def build_demo_full_state(task_id: str) -> dict:
         "human_checkpoints": [],
         "pending_human_decision": None,
         "final_report": {
-            "markdown": build_demo_report_markdown(),
-            "word_url": None,
-            "html": None,
+            "formats": {
+                "markdown": build_demo_report_markdown(),
+                "word_url": None,
+                "html": None,
+            },
+            "sections": [],
+            "metadata": {
+                "total_word_count": len(build_demo_report_markdown().split()),
+            },
         },
         "total_duration_ms": 1250,
         "llm_token_usage": {"total_prompt_tokens": 0, "total_completion_tokens": 0},

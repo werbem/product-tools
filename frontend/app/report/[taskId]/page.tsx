@@ -214,6 +214,7 @@ export default function ReportPage({
         markdown={report.markdown}
         html={report.html}
         wordUrl={report.word_url}
+        evidenceSources={report.evidence_sources}
       />
     </div>
   );

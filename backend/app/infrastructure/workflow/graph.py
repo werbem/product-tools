@@ -24,7 +24,9 @@ from app.infrastructure.workflow.state import WorkflowState
 
 
 def _route_from_validate(state: WorkflowState) -> str:
-    """After validate: valid → plan, invalid → fail."""
+    """After validate: valid → plan, demo → finalize, invalid → fail."""
+    if state.get("demo"):
+        return "finalize_node"
     cp = state.get("current_phase", "")
     return "plan_node" if cp == "validated" else "fail_node"
 
@@ -69,11 +71,11 @@ def build_workflow_graph() -> StateGraph:
     # ── Set entry ──
     graph.set_entry_point("validate_input_node")
 
-    # ── Conditional: validate → plan | fail ──
+    # ── Conditional: validate → plan | fail | finalize (demo) ──
     graph.add_conditional_edges(
         "validate_input_node",
         _route_from_validate,
-        {"plan_node": "plan_node", "fail_node": "fail_node"},
+        {"plan_node": "plan_node", "fail_node": "fail_node", "finalize_node": "finalize_node"},
     )
 
     # ── Main pipeline (sequential) ──

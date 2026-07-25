@@ -177,6 +177,7 @@ async def create_report(body: ReportCreateRequest) -> ReportCreateResponse:
             )
             # ---
 
+            evidence_list = (final_state.get("evidence_bundle") or {}).get("sources", [])
             _reports[task_id_str] = ReportDetailResponse(
                 id=UUID(final_state["task_id"]),
                 task_id=UUID(final_state["task_id"]),
@@ -191,6 +192,7 @@ async def create_report(body: ReportCreateRequest) -> ReportCreateResponse:
                 sections=[ReportSectionDTO(**s) for s in sections_data],
                 total_word_count=(report_doc or {}).get("metadata", {}).get("total_word_count", 0),
                 created_at=datetime.utcnow(),
+                evidence_sources=evidence_list if evidence_list else None,
             ).model_dump()
         except Exception as exc:
             import traceback

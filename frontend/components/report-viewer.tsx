@@ -5,13 +5,48 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Button } from "@/components/ui/button";
 
+interface EvidenceSource {
+  source_id?: string;
+  url?: string;
+  title?: string;
+  summary?: string;
+}
+
 interface ReportViewerProps {
   markdown: string | null;
   html: string | null;
   wordUrl: string | null;
+  evidenceSources?: EvidenceSource[];
 }
 
-export function ReportViewer({ markdown, html, wordUrl }: ReportViewerProps) {
+
+// ── Evidence link preprocessing ──
+function preprocessEvidence(md: string, sources?: EvidenceSource[]): string {
+  if (!md || !sources || sources.length === 0) return md;
+  const map: Record<string, EvidenceSource> = {};
+  for (const s of sources) {
+    if (s.source_id) map[s.source_id] = s;
+  }
+  return md.replace(
+    /\[E(\d{3})\]/g,
+    (_: string, num: string) => {
+      const id = `src_${num}`;
+      const src = map[id];
+      if (!src) return `<span class="ev-ref-na">[E${num}]</span>`;
+      const summary = (src.summary || src.title || "").substring(0, 120);
+      const html = `<a href="${src.url || "#"}" target="_blank" rel="noopener"
+        class="ev-ref" data-tooltip="${escapeHtml(summary)}"
+        title="${escapeHtml(src.title || "")}: ${escapeHtml(summary)}">[E${num}]</a>`;
+      return html;
+    }
+  );
+}
+
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+export function ReportViewer({ markdown, html, wordUrl, evidenceSources }: ReportViewerProps) {
   const [useHtml, setUseHtml] = useState(false);
   const [copied, setCopied] = useState(false);
 
@@ -40,7 +75,8 @@ export function ReportViewer({ markdown, html, wordUrl }: ReportViewerProps) {
     }
   };
 
-  const content = useHtml && html ? html : markdown;
+  const displayMarkdown = preprocessEvidence(markdown || "", evidenceSources);
+  const content = useHtml && html ? html : (displayMarkdown || markdown);
 
   if (!content) {
     return (

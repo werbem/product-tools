@@ -467,6 +467,12 @@ async def finalize_node(state: WorkflowState) -> dict[str, Any]:
     return {
         "current_phase": "completed",
         "progress": 100.0,
+        "phase_history": _push_phase(state, {
+            "phase": "finalized",
+            "entered_at": datetime.utcnow().isoformat(),
+            "duration_ms": 0,
+            "status": "completed",
+        }),
         "updated_at": datetime.utcnow().isoformat(),
         "demo": is_demo,
         "fact_audit_result": {

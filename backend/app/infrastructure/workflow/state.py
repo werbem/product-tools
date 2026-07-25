@@ -68,6 +68,8 @@ class TokenUsage(TypedDict, total=False):
 
 
 class WorkflowState(TypedDict, total=False):
+    # Demo mode flag — set by build_demo_full_state
+    demo: bool
     """Shared state for the competitive analysis LangGraph.
 
     All keys are optional because state is accumulated incrementally.

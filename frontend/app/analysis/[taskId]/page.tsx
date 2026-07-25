@@ -337,7 +337,6 @@ export default function AnalysisProgressPage({
           });
           setState({ type: "completed", taskId: state.serverTaskId });
           router.push(`/report/${state.serverTaskId}`);
-          setState({ type: "error", message: data.error_info || "报告生成失败" });
         } else if (status === "failed" || status === "review_failed" || status === "validation_failed") {
           clearInterval(interval);
           clearTimeout(timeout);

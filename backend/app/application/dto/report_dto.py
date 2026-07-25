@@ -50,6 +50,7 @@ class ReportDetailResponse(BaseModel):
     sections: list[ReportSectionDTO] = Field(default_factory=list)
     total_word_count: int = 0
     generated_at: Optional[datetime] = None
+    evidence_sources: Optional[list[dict]] = None
     status: Optional[str] = None
     error: Optional[str] = None
     diagnosis: Optional[dict] = None
