@@ -177,7 +177,11 @@ async def create_report(body: ReportCreateRequest) -> ReportCreateResponse:
             )
             # ---
 
-            evidence_list = (final_state.get("evidence_bundle") or {}).get("sources", [])
+            evidence_list = (
+                (final_state.get("evidence_bundle") or {}).get("sources_used")
+                or (final_state.get("evidence_bundle") or {}).get("sources")
+                or []
+            )
             _reports[task_id_str] = ReportDetailResponse(
                 id=UUID(final_state["task_id"]),
                 task_id=UUID(final_state["task_id"]),

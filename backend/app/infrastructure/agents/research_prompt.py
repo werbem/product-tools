@@ -14,7 +14,9 @@ SYSTEM_PROMPT = """你是一名严谨的竞品分析证据采集专家。
 4. 如果搜索结果为 No Evidence Found，必须诚实返回空列表
 
 输出要求：
-- 每条证据包含：title, source, url, date, summary, dimension, confidence
+- 整个输出必须是一个 JSON 对象，包含两个字段：evidence_items 和 search_summary
+- evidence_items 是证据数组，每条证据包含：title, source, url, date, summary, dimension, confidence
+- search_summary 是字符串，说明搜索了什么、找到多少结果、整体数据质量
 - dimension 必须是以下之一：positioning, users, features, ux, business, technology, growth, competitive_landscape, risks
 - confidence 评估：high（原文明确陈述）、medium（推断但合理）、low（间接相关）
 - 如果完全没有相关证据，返回空的 evidence_items 列表
@@ -42,6 +44,7 @@ class ExtractedEvidence(BaseModel):
     )
     search_summary: str = Field(
         description="搜索摘要：说明搜索了什么、找到了多少结果、整体数据质量",
+        default="",
     )
 
 

@@ -1,6 +1,7 @@
 """Abstract base class for all Agents."""
 
 from __future__ import annotations
+import json, re
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
@@ -74,6 +75,107 @@ class BaseAgent(ABC, Generic[InputT, OutputT]):
         """
         ...
 
+    # ═══════════════════════════════════════════════════
+    #  Shared JSON Parser — handles DeepSeek output quirks
+    # ═══════════════════════════════════════════════════
+
+    @staticmethod
+    def _parse_llm_json(raw: str) -> dict | None:
+        """Robust JSON parser for LLM responses.
+
+        Handles common quirks from DeepSeek and other models:
+          - Markdown code fences (```, ```json, ```JSON)
+          - JavaScript-style unquoted keys ({key: value})
+          - Trailing commas
+          - Text before/after the JSON block
+          - Multiple JSON blocks (picks the largest valid dict)
+          - parse_failed sentinel
+        """
+        if not raw or not raw.strip():
+            return None
+        text = raw.strip()
+
+        # ── Step 1: strip markdown code fences ──
+        code_fence_re = re.compile(r'^```(?:json|JSON)?\s*\n(.*?)\n```\s*$', re.DOTALL)
+        m = code_fence_re.match(text)
+        if m:
+            text = m.group(1).strip()
+        else:
+            # Partial fences
+            if text.startswith("```"):
+                text = text.split("\n", 1)[-1]
+            if text.endswith("```"):
+                text = text.rsplit("```", 1)[0]
+            text = text.strip()
+
+        # ── Step 2: find JSON blocks ──
+        candidates = []
+        # Find all { ... } blocks (non-greedy, balanced)
+        for m in re.finditer(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', text):
+            candidates.append(m.group())
+
+        # Also try greedy match as fallback
+        m = re.search(r'\{.*\}', text, re.DOTALL)
+        if m and m.group() not in candidates:
+            candidates.append(m.group())
+
+        # ── Step 3: try to parse each candidate ──
+        for cand in candidates:
+            result = BaseAgent._try_parse_json_str(cand)
+            if result is not None:
+                if isinstance(result, dict) and result.get("parse_failed"):
+                    return None  # LLM admitted failure
+                if isinstance(result, dict):
+                    return result
+
+        # ── Step 4: try the entire text ──
+        result = BaseAgent._try_parse_json_str(text)
+        if result is not None:
+            if isinstance(result, dict) and result.get("parse_failed"):
+                return None
+            if isinstance(result, dict):
+                return result
+
+        return None
+
+    @staticmethod
+    def _try_parse_json_str(s: str) -> Any | None:
+        """Try to parse a string as JSON with multiple fallback strategies."""
+        s = s.strip()
+        if not s:
+            return None
+
+        # Strategy 1: standard JSON
+        try:
+            return json.loads(s)
+        except (json.JSONDecodeError, ValueError):
+            pass
+
+        # Strategy 2: fix trailing commas
+        try:
+            fixed = re.sub(r',\s*([}\]])', r'\1', s)
+            return json.loads(fixed)
+        except (json.JSONDecodeError, ValueError):
+            pass
+
+        # Strategy 3: add quotes to unquoted keys (JS-style)
+        try:
+            # Match unquoted keys: word followed by colon
+            js_fixed = re.sub(r'(\s*)(\w+)(\s*):', r'\1"\2"\3:', s)
+            return json.loads(js_fixed)
+        except (json.JSONDecodeError, ValueError):
+            pass
+
+        # Strategy 4: unquoted keys + trailing commas
+        try:
+            fixed = re.sub(r',\s*([}\]])', r'\1', s)
+            js_fixed = re.sub(r'(\s*)(\w+)(\s*):', r'\1"\2"\3:', fixed)
+            return json.loads(js_fixed)
+        except (json.JSONDecodeError, ValueError):
+            pass
+
+        return None
+
     async def aexecute(
         self,
         ctx: AgentContext,
@@ -98,12 +200,18 @@ class BaseAgent(ABC, Generic[InputT, OutputT]):
             result.duration_ms = int(
                 (datetime.now() - start).total_seconds() * 1000
             )
+            # Merge (don't overwrite) the agent's own phase_record so that
+            # detailed diagnostics (selection_plan, sources_called, etc.)
+            # survive into phase_history / traces.
+            detail = result.phase_record if isinstance(result.phase_record, dict) else {}
             result.phase_record = {
                 "phase": self.phase.value,
                 "entered_at": start.isoformat(),
                 "duration_ms": result.duration_ms,
                 "status": "completed" if result.success else "failed",
             }
+            if detail:
+                result.phase_record.update(detail)
 
             # --- Trace: agent end ---
             out = result.output.model_dump() if hasattr(result.output, "model_dump") else str(result.output)

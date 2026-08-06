@@ -55,6 +55,65 @@ _WORKFLOW_STEPS = [
     "review",
 ]
 
+# ── English dimension → Chinese dimension normalization ──
+# DeepSeek/LLM frequently returns English dimension names (positioning, users,
+# business, ...) which do not match the Chinese keyword rules used by the
+# source selection engine. Normalize them back to Chinese so that both the
+# LLM router prompt and the rule-based fallback can match correctly.
+
+_DIMENSION_ZH_MAP: dict[str, str] = {
+    "user growth": "用户增长（DAU/MAU变化）",
+    "user_growth": "用户增长（DAU/MAU变化）",
+    "usergrowth": "用户增长（DAU/MAU变化）",
+    "positioning": "产品定位与品牌",
+    "users": "用户画像与行为变化",
+    "user": "用户画像与行为变化",
+    "growth": "增长策略与市场",
+    "business model": "商业模式差异",
+    "business_model": "商业模式差异",
+    "business": "商业模式差异",
+    "monetization": "商业模式（变现）",
+    "revenue": "收入结构",
+    "pricing": "定价策略",
+    "ux": "用户体验",
+    "usability": "用户体验",
+    "experience": "用户体验",
+    "features": "核心功能对比",
+    "feature": "核心功能对比",
+    "technology": "技术能力",
+    "architecture": "技术架构",
+    "tech stack": "技术能力",
+    "risks": "政策监管与风险",
+    "risk": "政策监管与风险",
+    "compliance": "合规风险",
+    "regulation": "政策监管",
+    "policy": "政策监管",
+    "market share": "市场竞争（份额）",
+    "market": "市场竞争",
+    "competition": "竞争格局",
+    "competitive": "竞争格局",
+    "brand": "品牌口碑",
+    "reputation": "品牌口碑",
+    "operations": "运营策略",
+    "marketing": "营销策略",
+    "acquisition": "获客策略",
+    "channel": "渠道策略",
+}
+
+
+def normalize_dimension(dim: str) -> str:
+    """Map an English/foreign dimension name to the canonical Chinese one."""
+    key = (dim or "").strip().lower()
+    if not key:
+        return dim
+    if key in _DIMENSION_ZH_MAP:
+        return _DIMENSION_ZH_MAP[key]
+    # Compound names ("competitive landscape", "user growth trends", ...)
+    for eng, zh in _DIMENSION_ZH_MAP.items():
+        if eng in key:
+            return zh
+    return dim
+
 
 class PlannerAgent(BaseAgent[PlannerInput, PlannerOutput]):
     """Planner Agent — uses LLM to generate dynamic research plans.
@@ -136,6 +195,7 @@ class PlannerAgent(BaseAgent[PlannerInput, PlannerOutput]):
         llm_plan: LLMResearchPlanOutput,
     ) -> ResearchPlan:
         """Map LLM structured output → ResearchPlan with individual ResearchTasks."""
+        dimensions = [normalize_dimension(d) for d in llm_plan.research_dimensions]
         base_keywords = [
             input_data.our_company,
             input_data.competitor_company,
@@ -161,8 +221,8 @@ class PlannerAgent(BaseAgent[PlannerInput, PlannerOutput]):
             task_keywords = [f"{kw}{suffix}" for kw in all_keywords[:3]]
 
             # Add dimension-specific keywords from the LLM output
-            if llm_plan.research_dimensions and i < len(llm_plan.research_dimensions):
-                dim = llm_plan.research_dimensions[i]
+            if dimensions and i < len(dimensions):
+                dim = dimensions[i]
                 task_keywords.append(f"{input_data.competitor_company} {dim}")
 
             task = ResearchTask(
@@ -178,7 +238,7 @@ class PlannerAgent(BaseAgent[PlannerInput, PlannerOutput]):
         # Build the ResearchPlan
         plan = ResearchPlan(
             objective=llm_plan.analysis_goal[:200],
-            analysis_scope=llm_plan.research_dimensions,
+            analysis_scope=dimensions,
             research_tasks=tasks,
             required_sources=sorted(sources_used),
             workflow=list(_WORKFLOW_STEPS),
@@ -193,7 +253,13 @@ class PlannerAgent(BaseAgent[PlannerInput, PlannerOutput]):
         """Fallback: return a standard research plan when LLM unavailable."""
         return ResearchPlan(
             objective=input_data.objective,
-            analysis_scope=["positioning", "users", "features", "business", "growth"],
+            analysis_scope=[
+                "产品定位与品牌",
+                "用户画像与行为变化",
+                "核心功能对比",
+                "商业模式差异",
+                "增长策略与市场",
+            ],
             research_tasks=[
                 ResearchTask(
                     task_id="task_web_001",

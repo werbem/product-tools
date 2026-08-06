@@ -53,11 +53,12 @@ async def get_task_progress(task_id: UUID) -> TaskProgressResponse:
 
     history = state.get("phase_history", [])
     # Collect error info from entry, state["error_info"], or state["errors"]
-    error_info = (
+    _raw_error = (
         entry.get("error")
         or state.get("error_info")
         or (state.get("errors", [None])[-1] if state.get("errors") else None)
     )
+    error_info = str(_raw_error) if _raw_error and not isinstance(_raw_error, str) else _raw_error
 
     # Expose diagnosis if available (from workflow exception handler)
     diagnosis = entry.get("diagnosis") or None

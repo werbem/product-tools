@@ -93,7 +93,7 @@ class ReportAgent(BaseAgent[ReportInput, ReportOutput]):
                 ),
                 response_model=None,
                 temperature=0.5,
-                timeout=120.0,
+                timeout=1200.0,
             )
         except Exception as e:
             traceback.print_exc()
@@ -325,6 +325,8 @@ class ReportAgent(BaseAgent[ReportInput, ReportOutput]):
     @classmethod
     def _serialize_strategy(cls, insights) -> str:
         """Serialize strategy insights to JSON for LLM prompt."""
+        if insights is None:
+            insights = {}
         if isinstance(insights, dict):
             swot = insights.get("swot") or insights
             opps = insights.get("opportunities") or []
@@ -434,19 +436,26 @@ class ReportAgent(BaseAgent[ReportInput, ReportOutput]):
             "",
             f"**产品**: {prod}",
             f"**分析目标**: {obj}",
-            f"**生成日期**: {datetime.utcnow().strftime("%Y-%m-%d %H:%M")}",
+            f"**生成日期**: {datetime.utcnow():%Y-%m-%d %H:%M}",
             "",
             "> ℹ️ 本报告由 AI Agent 自动生成。数据来源包括公开信息和 AI 分析。",
             "",
             "## 一、证据收集概况",
             "",
         ]
-        # Evidence summary
+        # Evidence summary (evidence_json may be a JSON array or object)
         try:
             ev = json.loads(evidence_json) if isinstance(evidence_json, str) else evidence_json
-            items = ev.get("evidence_summary", [])
+            if isinstance(ev, list):
+                items = ev
+                sources = []
+            elif isinstance(ev, dict):
+                items = ev.get("evidence_summary", []) or []
+                sources = ev.get("sources_used", []) or []
+            else:
+                items = []
+                sources = []
             lines.append(f"- 共收集 {len(items)} 条证据")
-            sources = ev.get("sources_used", [])
             if sources:
                 lines.append(f"- 来源: {', '.join(str(s) for s in sources[:10])}")
         except Exception:

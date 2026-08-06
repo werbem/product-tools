@@ -39,6 +39,7 @@ class LLMResearchPlanOutput(BaseModel):
     analysis_goal: str = Field(description="分析目标的一句话总结，例如「分析飞猪DAU持续下降的根因」")
     research_dimensions: list[str] = Field(
         description="需要分析的研究维度列表（至少3个，不超过8个）。"
+                    "必须使用中文输出。"
                     "例如：['用户画像与行为变化', '核心功能对比', '商业模式差异', '增长策略与市场']",
     )
     search_keywords: list[str] = Field(

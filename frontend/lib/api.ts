@@ -1,5 +1,6 @@
 import type {
   AnalysisInput,
+  DemoStatusResponse,
   ReportCreateResponse,
   ReportDetailResponse,
   TaskProgressResponse,
@@ -52,6 +53,10 @@ export async function createReport(input: AnalysisInput, signal?: AbortSignal): 
 
 export async function getReport(taskId: string): Promise<ReportDetailResponse> {
   return request<ReportDetailResponse>(`${API_PREFIX}/reports/${taskId}`);
+}
+
+export async function getDemoStatus(): Promise<DemoStatusResponse> {
+  return request<DemoStatusResponse>(`${API_PREFIX}/health/demo`);
 }
 
 export async function getProgress(taskId: string): Promise<TaskProgressResponse> {

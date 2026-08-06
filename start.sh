@@ -73,6 +73,9 @@ sleep 1
 echo "🚀 Starting services... (Ctrl+C to stop)"
 echo ""
 
+# 本地运行时后端在 localhost:8000；Docker Compose 会覆盖为 http://backend:8000
+export API_URL="${API_URL:-http://localhost:8000}"
+
 cleanup() {
     echo ""
     echo "🛑 Shutting down..."

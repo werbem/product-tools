@@ -10,6 +10,7 @@ services:
       - APP_DEBUG=false
       - APP_HOST=0.0.0.0
       - APP_PORT=8000
+      - APP_DATA_DIR=/app/data
       - FRONTEND_URL=${FRONTEND_URL:-http://localhost:3000}
       - LLM_PROVIDER=${LLM_PROVIDER:-openai}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
@@ -20,6 +21,7 @@ services:
       - DATABASE_URL=sqlite+aiosqlite:///./data/competitive_analysis.db
     volumes:
       - ./data:/app/data
+    restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
       interval: 10s
@@ -35,6 +37,10 @@ services:
       - "3000:3000"
     environment:
       - API_URL=http://backend:8000
+      # Next.js standalone server reads HOSTNAME and binds to the resolved IP
+      # (container ID by default), which breaks localhost healthchecks.
+      - HOSTNAME=0.0.0.0
+    restart: unless-stopped
     depends_on:
       backend:
         condition: service_healthy

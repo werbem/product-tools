@@ -13,6 +13,12 @@ export interface ReportCreateResponse {
   message: string;
 }
 
+export interface DemoStatusResponse {
+  demo_mode: boolean;
+  reason?: string | null;
+  demo_case?: string | null;
+}
+
 export interface PhaseRecord {
   phase: string;
   entered_at: string;
@@ -30,8 +36,8 @@ export interface TaskProgressResponse {
   error_info?: string | null;
   diagnosis?: DiagnosisInfo | null;
   created_at: string;
-}
 
+}
 
 export interface DiagnosisInfo {
   task_id?: string;
@@ -70,6 +76,15 @@ export interface ReportDetailResponse {
   error?: string | null;
   diagnosis?: DiagnosisInfo | null;
   created_at: string;
+  evidence_sources?: {
+    source_id?: string;
+    url?: string;
+    title?: string;
+    summary?: string;
+    source_type?: string;
+    date?: string;
+    domain?: string;
+  }[]
 }
 
 export interface HistoryEntry {

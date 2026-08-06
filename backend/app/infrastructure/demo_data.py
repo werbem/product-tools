@@ -24,7 +24,15 @@ DEMO_CASE = {
 def build_demo_plan() -> dict:
     return {
         "objective": "分析抖音与快手的产品竞争力差异，识别抖音可改进的功能与体验",
-        "analysis_scope": ["positioning", "users", "features", "ux", "business", "technology", "growth"],
+        "analysis_scope": [
+            "产品定位与品牌",
+            "用户画像与行为变化",
+            "核心功能对比",
+            "用户体验",
+            "商业模式差异",
+            "技术能力",
+            "增长策略与市场",
+        ],
         "research_tasks": [
             {
                 "task_id": "task_web_001",

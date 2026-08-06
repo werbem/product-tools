@@ -122,8 +122,10 @@ class LLMStrategyOutput(BaseModel):
     overall_confidence: str = "medium"
 
 
-def _normalize_strategy_output(raw: dict) -> LLMStrategyOutput:
+def _normalize_strategy_output(raw: dict | None) -> LLMStrategyOutput:
     """Normalize raw LLM JSON output to LLMStrategyOutput."""
+    if not isinstance(raw, dict):
+        return LLMStrategyOutput()
     def _swot_items(lst):
         if not lst:
             return []

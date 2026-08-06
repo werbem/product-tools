@@ -17,7 +17,8 @@ from app.application.dto.agent_dto import (
 from app.config.constants import Phase
 from app.infrastructure.agents.base import AgentContext, AgentResult, BaseAgent
 from app.infrastructure.agents.strategy_prompt import (
-    SYSTEM_PROMPT, build_strategy_prompt, _normalize_strategy_output,
+    SYSTEM_PROMPT, LLMStrategyOutput, build_strategy_prompt,
+    _normalize_strategy_output,
 )
 from app.infrastructure.llm.client import llm_client
 
@@ -25,6 +26,8 @@ _CONFIDENCE_WEIGHTS = {"high": 1.0, "medium": 0.6, "low": 0.3, "estimated": 0.1}
 
 def _dget(obj, key, default=None):
     """Safe dict/object access — handles both Pydantic models and plain dicts."""
+    if obj is None:
+        return default
     if isinstance(obj, dict):
         return obj.get(key, default)
     return getattr(obj, key, default)
@@ -86,26 +89,29 @@ class StrategyAgent(BaseAgent[StrategyInput, StrategyOutput]):
                     evidence_json=evidence_json,
                     insights_json=insights_json,
                 ),
-                response_model=None,
+                response_model=LLMStrategyOutput,
                 temperature=0.5,
+                timeout=900.0,
             )
         except Exception:
             return self._need_more("LLM 调用失败")
 
         # ── Step 5: Parse JSON directly ──
-        parsed = None
-        raw_text = (result.content or "").strip()
-        if raw_text:
-            if raw_text.startswith("```"):
-                raw_text = raw_text.split("\n", 1)[-1].rsplit("```", 1)[0]
-            try:
-                m = re.search(r"\{.*\}", raw_text, re.DOTALL)
-                if m:
-                    data = json.loads(m.group())
-                    if isinstance(data, dict):
-                        parsed = _normalize_strategy_output(data)
-            except (json.JSONDecodeError, Exception):
-                parsed = None
+        parsed = result.parsed if isinstance(result.parsed, LLMStrategyOutput) else None
+        if parsed is None:
+            # Fallback: parse raw content directly
+            raw_text = (result.content or "").strip()
+            if raw_text:
+                if raw_text.startswith("```"):
+                    raw_text = raw_text.split("\n", 1)[-1].rsplit("```", 1)[0]
+                try:
+                    m = re.search(r"\{.*\}", raw_text, re.DOTALL)
+                    if m:
+                        data = json.loads(m.group())
+                        if isinstance(data, dict):
+                            parsed = _normalize_strategy_output(data)
+                except (json.JSONDecodeError, Exception):
+                    parsed = None
 
         if not parsed:
             return self._need_more("LLM 返回格式异常")

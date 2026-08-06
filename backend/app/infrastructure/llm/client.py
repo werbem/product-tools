@@ -90,6 +90,7 @@ def _parse_response(
 
     # Try direct JSON parse
     last_error = None
+    data: dict | None = None
     try:
         # Strip markdown code fences if present
         cleaned = content.strip()
@@ -118,13 +119,42 @@ def _parse_response(
                     return content, None
                 parsed = response_model.model_validate(data)
                 return content, parsed
+            except (json.JSONDecodeError, ValidationError) as exc2:
+                last_error = exc2
+        # Fallback: fill missing required fields with schema defaults
+        # (DeepSeek and other free-form JSON models often omit optional-looking
+        #  fields that the schema marks required)
+        if isinstance(data, dict):
+            try:
+                filled = _fill_missing_with_defaults(response_model, data)
+                if filled != data:
+                    parsed = response_model.model_validate(filled)
+                    return content, parsed
             except (json.JSONDecodeError, ValidationError):
                 pass
         # If all parsing fails, return raw content with error info
         return content, None
 
 
+def _fill_missing_with_defaults(
+    model_class: type[BaseModel],
+    data: dict,
+) -> dict:
+    """Fill missing top-level fields from JSON Schema defaults."""
+    schema = model_class.model_json_schema()
+    props = schema.get("properties", {})
+    filled = dict(data)
+    for name, prop in props.items():
+        if name not in filled and "default" in prop:
+            filled[name] = prop["default"]
+    return filled
+
+
 # ── Main Client ──
+def _is_deepseek(model: str, base_url: str = "") -> bool:
+    """Detect if the model is DeepSeek (does not support json_schema)."""
+    return "deepseek" in model.lower() or "deepseek" in (base_url or "").lower()
+
 
 class LLMClient:
     """LLM client with real OpenAI support and Mock fallback.
@@ -177,6 +207,7 @@ class LLMClient:
         if self._use_openai():
             result = await self._generate_openai(
                 system_prompt, user_prompt, response_model, temperature,
+                timeout,
             )
         else:
             result = self._generate_mock(system_prompt, user_prompt, response_model)
@@ -256,7 +287,7 @@ class LLMClient:
         }
 
         # Structured Outputs support (gpt-4o-mini+)
-        if response_model is not None:
+        if response_model is not None and not _is_deepseek(self.model, self._base_url):
             kwargs["response_format"] = {
                 "type": "json_schema",
                 "json_schema": {
@@ -285,7 +316,7 @@ class LLMClient:
                     time.sleep(wait)
                     continue
                 return LLMResponse(
-                    content=f"[TIMEOUT] Request timed out after {_TIMEOUT}s",
+                    content=f"[TIMEOUT] Request timed out after {kwargs['timeout']}s",
                     model=f"openai/{self.model}",
                     duration_ms=0,
                 )

@@ -11,7 +11,12 @@ import os
 from pathlib import Path
 from typing import Any
 
-DATA_DIR = Path(__file__).resolve().parent.parent.parent.parent.parent / "data" / "persistence"
+from app.config.settings import settings
+
+# Unified with settings.data_dir (mounted volume /app/data in docker,
+# repo-root data/ in local dev) so persisted tasks/reports survive
+# container rebuilds instead of being written to the container layer.
+DATA_DIR = settings.data_dir / "persistence"
 
 
 def _ensure_dir() -> None:

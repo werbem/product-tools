@@ -217,7 +217,7 @@ class ResearchAgent(BaseAgent[ResearchInput, ResearchOutput]):
                     f"[{result.source_name}] LLM调用失败 ({exc})"
                 )
 
-        # Deduplicate by URL
+        # Deduplicate by URL and assign stable 1-based evidence IDs (E001, E002, ...)
         seen_urls: set[str] = set()
         deduped: list[EvidenceItemDTO] = []
         for e in all_evidence:
@@ -227,6 +227,8 @@ class ResearchAgent(BaseAgent[ResearchInput, ResearchOutput]):
             elif not e.url:
                 # Keep items without URL (shouldn't happen, but safety)
                 deduped.append(e)
+        for idx, e in enumerate(deduped):
+            e.id = f"E{idx + 1:03d}"
 
         search_summary = " | ".join(all_summaries) if all_summaries else "无搜索执行"
 
@@ -278,14 +280,21 @@ class ResearchAgent(BaseAgent[ResearchInput, ResearchOutput]):
         """Build EvidenceBundle and QualityReport from extracted evidence."""
         total_results = sum(len(r.items) for r in all_results)
         sources_used: list[dict] = []
-        seen_domains: set[str] = set()
         for e in evidence_items:
+            domain = ""
             if e.url:
                 from urllib.parse import urlparse
                 domain = urlparse(e.url).netloc
-                if domain not in seen_domains:
-                    seen_domains.add(domain)
-                    sources_used.append({"domain": domain, "url": e.url})
+            sources_used.append({
+                # source_id 与证据 id（E001/E002...）对齐，报告引用 [E001] 可直接匹配
+                "source_id": e.id or f"src_{len(sources_used):03d}",
+                "domain": domain,
+                "url": e.url,
+                "title": e.title,
+                "summary": (e.content or "")[:300],
+                "source_type": e.source_type,
+                "date": e.date,
+            })
 
         # Build company/product info from top evidence
         our_items = [

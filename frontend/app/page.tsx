@@ -1,12 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AnalysisForm } from "@/components/analysis-form";
 import { ReportHistory } from "@/components/report-history";
 import { Button } from "@/components/ui/button";
+import { getDemoStatus } from "@/lib/api";
+
+type SystemMode = "loading" | "demo" | "real" | "error";
 
 const DEMO_VALUES = {
-  our_company: "字节跳动",
+  our_company: "抖音",
   competitor_company: "快手",
   product: "抖音",
   objective: "product_improvement",
@@ -65,17 +68,25 @@ const CAPABILITIES = [
 ];
 
 export default function HomePage() {
-  const [demoActive, setDemoActive] = useState(false);
+  const [systemMode, setSystemMode] = useState<SystemMode>("loading");
 
-  const handleDemoClick = () => {
-    setDemoActive(true);
-    setTimeout(() => {
-      document.getElementById("analysis-form-section")?.scrollIntoView({ behavior: "smooth" });
-    }, 100);
-  };
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await getDemoStatus();
+        if (cancelled) return;
+        setSystemMode(res.demo_mode ? "demo" : "real");
+      } catch {
+        if (!cancelled) setSystemMode("error");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleStartClick = () => {
-    setDemoActive(false);
     setTimeout(() => {
       document.getElementById("analysis-form-section")?.scrollIntoView({ behavior: "smooth" });
     }, 100);
@@ -123,21 +134,13 @@ export default function HomePage() {
                 开始分析
                 <svg className="ml-2 w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14" /><path d="m12 5 7 7-7 7" /></svg>
               </Button>
-
-              <Button
-                size="lg"
-                variant="outline"
-                onClick={handleDemoClick}
-                className="w-full sm:w-auto border-white/30 text-white hover:bg-white/10 hover:text-white bg-white/5 backdrop-blur text-base px-8 py-6 h-auto"
-              >
-                体验 Demo
-                <svg className="ml-2 w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="5 3 19 12 5 21 5 3" /></svg>
-              </Button>
             </div>
 
-            <p className="text-sm text-white/40">
-              Demo 使用固定案例「抖音 vs 快手」展示完整分析流程，无需配置 API Key
-            </p>
+            {systemMode === "demo" && (
+              <p className="text-sm text-white/40">
+                当前为 Demo 模式，使用固定案例「抖音 vs 快手」展示完整分析流程，无需配置 API Key
+              </p>
+            )}
           </div>
         </div>
 
@@ -228,29 +231,39 @@ export default function HomePage() {
       {/* ═══════════════ Analysis Form ═══════════════ */}
       <section id="analysis-form-section" className="container mx-auto px-4 py-16 max-w-2xl">
         <div className="text-center mb-8">
-          <h2 className="text-2xl font-bold tracking-tight">
-            {demoActive ? "体验 Demo 案例" : "开始你的分析"}
-          </h2>
-          <p className="mt-2 text-muted-foreground">
-            {demoActive
-              ? "已预填「抖音 vs 快手」案例，可直接提交体验完整流程"
-              : "填写公司和产品信息，AI 将自动完成竞品分析"}
-          </p>
-          {demoActive && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="mt-2"
-              onClick={handleStartClick}
-            >
-              切换为自定义分析
-            </Button>
+          {systemMode === "loading" ? (
+            <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium border bg-muted text-muted-foreground border-border mb-4">
+              正在检测系统模式…
+            </span>
+          ) : systemMode === "demo" ? (
+            <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200 mb-4">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500" />
+              </span>
+              当前系统配置为demo模式，Demo 使用固定案例「抖音 vs 快手」展示完整分析流程
+            </span>
+          ) : systemMode === "real" ? (
+            <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200 mb-4">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+              </span>
+              真实模式 · 使用真实数据源与 LLM 生成竞品分析报告
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium bg-muted text-muted-foreground border border-border mb-4">
+              系统模式未知（后端服务不可达）
+            </span>
           )}
+          <h2 className="text-2xl font-bold tracking-tight">开始你的分析</h2>
+          <p className="mt-2 text-muted-foreground">
+            填写公司和产品信息，AI 将自动完成竞品分析
+          </p>
         </div>
 
         <AnalysisForm
-          key={demoActive ? "demo" : "custom"}
-          initialValues={demoActive ? DEMO_VALUES : undefined}
+          initialValues={systemMode === "demo" ? DEMO_VALUES : undefined}
         />
 
         {/* Divider */}

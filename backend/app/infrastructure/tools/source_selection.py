@@ -74,6 +74,45 @@ SELECTION_RULES: dict[str, list[str]] = {
     "风险":     [SourceType.WEB, SourceType.NEWS],
     "合规":     [SourceType.WEB, SourceType.NEWS],
     "监管":     [SourceType.WEB, SourceType.NEWS],
+
+    # ═══════════════════════════════════════════════════
+    #  English dimension aliases (Planner/LLM often returns
+    #  English dimension names such as positioning/users/growth)
+    # ═══════════════════════════════════════════════════
+    "user growth":  [SourceType.NEWS, SourceType.WEB, SourceType.SOCIAL],
+    "user_growth":  [SourceType.NEWS, SourceType.WEB, SourceType.SOCIAL],
+    "usergrowth":   [SourceType.NEWS, SourceType.WEB, SourceType.SOCIAL],
+    "positioning":  [SourceType.OFFICIAL, SourceType.WEB, SourceType.NEWS],
+    "users":        [SourceType.APP_STORE, SourceType.SOCIAL, SourceType.WEB],
+    "user":         [SourceType.APP_STORE, SourceType.SOCIAL, SourceType.WEB],
+    "growth":       [SourceType.NEWS, SourceType.WEB, SourceType.SOCIAL],
+    "business model": [SourceType.OFFICIAL, SourceType.NEWS, SourceType.WEB],
+    "business_model": [SourceType.OFFICIAL, SourceType.NEWS, SourceType.WEB],
+    "business":     [SourceType.OFFICIAL, SourceType.NEWS, SourceType.WEB],
+    "monetization": [SourceType.OFFICIAL, SourceType.NEWS, SourceType.WEB],
+    "revenue":      [SourceType.WEB, SourceType.NEWS],
+    "pricing":      [SourceType.OFFICIAL, SourceType.WEB],
+    "ux":           [SourceType.APP_STORE, SourceType.SOCIAL, SourceType.WEB],
+    "usability":    [SourceType.APP_STORE, SourceType.SOCIAL, SourceType.WEB],
+    "experience":   [SourceType.APP_STORE, SourceType.SOCIAL, SourceType.WEB],
+    "technology":   [SourceType.DEVELOPER, SourceType.OFFICIAL, SourceType.WEB],
+    "architecture": [SourceType.DEVELOPER, SourceType.OFFICIAL],
+    "tech stack":   [SourceType.DEVELOPER, SourceType.WEB],
+    "risks":        [SourceType.WEB, SourceType.NEWS],
+    "risk":         [SourceType.WEB, SourceType.NEWS],
+    "compliance":   [SourceType.WEB, SourceType.NEWS],
+    "regulation":   [SourceType.WEB, SourceType.NEWS],
+    "policy":       [SourceType.WEB, SourceType.NEWS],
+    "market share": [SourceType.NEWS, SourceType.WEB, SourceType.OFFICIAL],
+    "market":       [SourceType.NEWS, SourceType.WEB, SourceType.OFFICIAL],
+    "competition":  [SourceType.NEWS, SourceType.WEB],
+    "competitive":  [SourceType.NEWS, SourceType.WEB],
+    "brand":        [SourceType.WEB, SourceType.SOCIAL, SourceType.NEWS],
+    "reputation":   [SourceType.WEB, SourceType.SOCIAL, SourceType.NEWS],
+    "operations":   [SourceType.NEWS, SourceType.SOCIAL, SourceType.WEB],
+    "marketing":    [SourceType.NEWS, SourceType.SOCIAL, SourceType.WEB],
+    "acquisition":  [SourceType.NEWS, SourceType.SOCIAL],
+    "channel":      [SourceType.NEWS, SourceType.SOCIAL, SourceType.WEB],
 }
 
 # Default when no dimension matches

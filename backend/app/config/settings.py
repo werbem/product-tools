@@ -21,13 +21,17 @@ from pathlib import Path
 from dotenv import load_dotenv
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from app.config.constants import DEMO_MODE_DEFAULT
 
 
 # ── Load .env files before Pydantic initializes ──
 # Priority: backend/.env > .env (project root)
 _env_loaded = load_dotenv(override=False)  # project root .env
 _env_loaded = load_dotenv(dotenv_path=".env", override=False) and _env_loaded
+
+# DEMO_MODE_DEFAULT is computed at import time from os.environ, so it must be
+# imported AFTER .env has been loaded — otherwise OPENAI_API_KEY from .env is
+# invisible and the app falls into demo mode even with a configured key.
+from app.config.constants import DEMO_MODE_DEFAULT
 
 
 class AppEnv(str, Enum):
@@ -105,10 +109,22 @@ class Settings(BaseSettings):
 
     # Paths
     project_root: Path = Path(__file__).resolve().parent.parent.parent.parent
+    # Explicit data dir override (e.g. APP_DATA_DIR=/app/data in docker).
+    # Keeps container persistence on the mounted volume instead of the
+    # container layer derived from project_root/__file__.
+    app_data_dir: Path | None = None
+
+    @field_validator("app_data_dir", mode="before")
+    @classmethod
+    def _coerce_app_data_dir(cls, v: object) -> Path | None:
+        """Handle empty string from docker-compose ${VAR:-} syntax."""
+        if isinstance(v, str) and v.strip() == "":
+            return None
+        return v
 
     @property
     def data_dir(self) -> Path:
-        path = self.project_root / "data"
+        path = self.app_data_dir or (self.project_root / "data")
         path.mkdir(parents=True, exist_ok=True)
         return path
 

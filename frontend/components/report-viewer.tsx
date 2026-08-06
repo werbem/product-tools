@@ -10,6 +10,9 @@ interface EvidenceSource {
   url?: string;
   title?: string;
   summary?: string;
+  source_type?: string;
+  date?: string;
+  domain?: string;
 }
 
 interface ReportViewerProps {
@@ -21,29 +24,95 @@ interface ReportViewerProps {
 
 
 // ── Evidence link preprocessing ──
-function preprocessEvidence(md: string, sources?: EvidenceSource[]): string {
-  if (!md || !sources || sources.length === 0) return md;
-  const map: Record<string, EvidenceSource> = {};
-  for (const s of sources) {
-    if (s.source_id) map[s.source_id] = s;
-  }
-  return md.replace(
-    /\[E(\d{3})\]/g,
-    (_: string, num: string) => {
-      const id = `src_${num}`;
-      const src = map[id];
-      if (!src) return `<span class="ev-ref-na">[E${num}]</span>`;
-      const summary = (src.summary || src.title || "").substring(0, 120);
-      const html = `<a href="${src.url || "#"}" target="_blank" rel="noopener"
-        class="ev-ref" data-tooltip="${escapeHtml(summary)}"
-        title="${escapeHtml(src.title || "")}: ${escapeHtml(summary)}">[E${num}]</a>`;
-      return html;
-    }
-  );
+// 将报告中的 [E001]、[E016] 等引用标记替换为：
+//   - 可点击的超链接（新窗口打开原始来源）
+//   - 悬浮时展示 名称/来源渠道/日期/摘要 详情
+// 关联证据行额外直接展示证据标题（渠道 · 日期）。
+
+function escapeAttr(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }
 
-function escapeHtml(s: string): string {
-  return s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+// 构建 E 编号 → 证据来源 的映射（兼容新旧数据格式与 0/1 基编号）
+function buildEvidenceMap(sources?: EvidenceSource[]): Map<number, EvidenceSource> {
+  const map = new Map<number, EvidenceSource>();
+  if (!sources) return map;
+  sources.forEach((s, idx) => {
+    const id = s.source_id || "";
+    let eNum = /^E(\d+)/i.exec(id)?.[1];
+    let srcNum = /^src_(\d+)/i.exec(id)?.[1];
+    // E001 → 1（1-based）；src_000 → 1（兼容旧格式，0-based 补 +1）
+    const key = eNum
+      ? parseInt(eNum, 10)
+      : srcNum
+        ? parseInt(srcNum, 10) + 1
+        : idx + 1;
+    if (!map.has(key)) map.set(key, s);
+    // 旧格式 src_000 同时也注册 0-based 编号 0，兼容 LLM 输出的 [E000]
+    if (srcNum && !map.has(parseInt(srcNum, 10))) {
+      map.set(parseInt(srcNum, 10), s);
+    }
+  });
+  return map;
+}
+
+function findEvidence(map: Map<number, EvidenceSource>, num: number): EvidenceSource | undefined {
+  // 1-based 精确匹配
+  const exact = map.get(num);
+  if (exact) return exact;
+  // 0-based 容错：报告 [E000] 实际指向第一条证据（E001）
+  return map.get(num + 1);
+}
+
+function evidenceChannel(s: EvidenceSource): string {
+  return s.domain || s.source_type || "";
+}
+
+// 构建悬浮详情文本（标题 / 来源 / 摘要）
+function evidenceTooltip(s: EvidenceSource): string {
+  const meta = [evidenceChannel(s), s.date].filter(Boolean).join(" · ");
+  return [
+    s.title ? `📄 标题：${s.title}` : "",
+    meta ? `🔗 来源：${meta}` : "",
+    s.summary ? `📝 摘要：${s.summary.slice(0, 180)}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+// Markdown 链接内的文本转义（防止 ] [ 破坏链接语法）
+function escapeLinkText(s: string): string {
+  return s.replace(/\\/g, "\\\\").replace(/\[/g, "\\[").replace(/\]/g, "\\]");
+}
+
+// Markdown 链接 title 转义（避免双引号破坏 title 语法）
+function escapeTitle(s: string): string {
+  return s.replace(/"/g, "'");
+}
+
+function preprocessEvidence(
+  md: string,
+  sources?: EvidenceSource[],
+  _mode?: string,
+): string {
+  if (!md || !sources || sources.length === 0) return md;
+  const map = buildEvidenceMap(sources);
+
+  // Step 1: Strip any existing markdown links from evidence refs
+  md = md.replace(/\[E(\d{3})\]\([^)]*\)/g, (_m: string, num: string) => `[E${num}]`);
+
+  // Step 2: Replace [E001] with clean markdown links
+  // Uses short E001 text to avoid table-layout issues
+  return md.replace(/\[E(\d{3})\]/g, (_m: string, num: string) => {
+    const s = findEvidence(map, parseInt(num, 10));
+    if (!s) return `[E${num}]`;
+    const url = escapeAttr(s.url || "#");
+    return `[E${num}](${url})`;
+  });
 }
 
 export function ReportViewer({ markdown, html, wordUrl, evidenceSources }: ReportViewerProps) {
@@ -69,14 +138,9 @@ export function ReportViewer({ markdown, html, wordUrl, evidenceSources }: Repor
     }
   };
 
-  const handleExportWord = () => {
-    if (wordUrl) {
-      window.open(wordUrl, "_blank");
-    }
-  };
-
   const displayMarkdown = preprocessEvidence(markdown || "", evidenceSources);
   const content = useHtml && html ? html : (displayMarkdown || markdown);
+  const displayHtml = useHtml && html ? preprocessEvidence(html, evidenceSources, "html") : null;
 
   if (!content) {
     return (
@@ -117,26 +181,69 @@ export function ReportViewer({ markdown, html, wordUrl, evidenceSources }: Repor
           <Button variant="outline" size="sm" onClick={handleCopy} disabled={!markdown}>
             {copied ? "已复制" : "复制 Markdown"}
           </Button>
-          {wordUrl && (
-            <Button variant="outline" size="sm" onClick={handleExportWord}>
-              导出 Word
-            </Button>
-          )}
         </div>
       </div>
 
       {/* Report content */}
       <div className="border rounded-lg bg-white p-6 sm:p-8 shadow-sm">
         {useHtml && html ? (
-          <div className="report-content" dangerouslySetInnerHTML={{ __html: html }} />
+          <div className="report-content" dangerouslySetInnerHTML={{ __html: displayHtml || "" }} />
         ) : (
           <div className="report-content">
             <ReactMarkdown remarkPlugins={[remarkGfm]}>
-              {markdown || ""}
+              {displayMarkdown}
             </ReactMarkdown>
           </div>
         )}
       </div>
+
+      {/* ═══════════════ 附录：证据来源清单 ═══════════════ */}
+      {evidenceSources && evidenceSources.length > 0 && (
+        <div className="border rounded-lg bg-white p-6 sm:p-8 shadow-sm">
+          <h2 className="text-xl font-bold mb-4">附录：证据来源</h2>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm border-collapse">
+              <thead>
+                <tr className="border-b bg-muted/50">
+                  <th className="text-left py-2 px-3 font-medium w-16">编号</th>
+                  <th className="text-left py-2 px-3 font-medium">标题</th>
+                  <th className="text-left py-2 px-3 font-medium w-28">日期</th>
+                  <th className="text-left py-2 px-3 font-medium w-32">来源</th>
+                </tr>
+              </thead>
+              <tbody>
+                {evidenceSources.filter(s => s.source_id).map((s, i) => (
+                  <tr key={s.source_id || i} className="border-b hover:bg-muted/30 transition-colors">
+                    <td className="py-2 px-3 text-muted-foreground font-mono text-xs">{s.source_id}</td>
+                    <td className="py-2 px-3">
+                      {s.url ? (
+                        <a
+                          href={s.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-primary hover:underline"
+                          title={s.summary || s.title || ""}
+                        >
+                          {s.title || s.source_id || ""}
+                        </a>
+                      ) : (
+                        <span>{s.title || s.source_id || ""}</span>
+                      )}
+                      {s.summary && (
+                        <span className="block text-xs text-muted-foreground mt-0.5 line-clamp-1">
+                          {s.summary}
+                        </span>
+                      )}
+                    </td>
+                    <td className="py-2 px-3 text-muted-foreground text-xs whitespace-nowrap">{s.date || "-"}</td>
+                    <td className="py-2 px-3 text-muted-foreground text-xs">{s.domain || s.source_type || "-"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

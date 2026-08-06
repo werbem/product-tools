@@ -52,3 +52,46 @@
 .report-content ol { @apply list-decimal pl-6 my-2 space-y-1; }
 .report-content hr { @apply my-6; }
 .report-content img { @apply max-w-full border rounded-lg my-4; }
+
+/* Evidence citation links */
+.report-content .ev-ref {
+  @apply text-primary font-medium no-underline;
+  position: relative;
+  padding: 0 2px;
+  border-radius: 4px;
+  background: rgba(59, 130, 246, 0.08);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.report-content .ev-ref:hover {
+  background: rgba(59, 130, 246, 0.18);
+}
+.report-content .ev-ref[data-tooltip]:hover::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: 140%;
+  left: 0;
+  z-index: 50;
+  min-width: 240px;
+  max-width: 320px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: #1f2937;
+  color: #f9fafb;
+  font-size: 12px;
+  line-height: 1.5;
+  font-weight: 400;
+  white-space: pre-line;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  pointer-events: none;
+}
+.report-content .ev-ref-na {
+  color: #9ca3af;
+  text-decoration: line-through;
+}
+.report-content .ev-inline-name {
+  color: #6b7280;
+  font-size: 0.85em;
+  font-weight: 400;
+}

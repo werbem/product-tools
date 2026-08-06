@@ -5,9 +5,8 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { ReportViewer } from "@/components/report-viewer";
-import { getReport, createReport } from "@/lib/api";
-import { saveToHistory } from "@/lib/utils";
-import type { AnalysisInput, ReportDetailResponse } from "@/types";
+import { getReport } from "@/lib/api";
+import type { ReportDetailResponse } from "@/types";
 
 export default function ReportPage({
   params,
@@ -21,7 +20,6 @@ export default function ReportPage({
   const [report, setReport] = useState<ReportDetailResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [regenerating, setRegenerating] = useState(false);
   const [metaExpanded, setMetaExpanded] = useState(false);
 
   const fetchReport = async () => {
@@ -40,29 +38,6 @@ export default function ReportPage({
   useEffect(() => {
     fetchReport();
   }, [taskId]);
-
-  const handleRegenerate = async () => {
-    if (!report) return;
-    setRegenerating(true);
-    try {
-      const result = await createReport({
-        our_company: report.our_company,
-        competitor_company: report.competitor_company,
-        product: report.product,
-        objective: report.objective as AnalysisInput["objective"],
-      });
-      saveToHistory({
-        taskId: result.task_id,
-        ourCompany: report.our_company,
-        competitorCompany: report.competitor_company,
-        product: report.product,
-        objective: report.objective,
-      });
-      router.push(`/analysis/${result.task_id}`);
-    } catch {
-      setRegenerating(false);
-    }
-  };
 
   if (loading) {
     return (
@@ -114,16 +89,6 @@ export default function ReportPage({
               <path d="M19 12H5" /><polyline points="12 19 5 12 12 5" />
             </svg>
             返回首页
-          </Button>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleRegenerate}
-            disabled={regenerating}
-          >
-            {regenerating ? "重新生成中..." : "重新生成"}
           </Button>
         </div>
       </div>

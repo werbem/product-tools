@@ -113,7 +113,7 @@ class ReviewAgent(BaseAgent[ReviewInput, ReviewOutput]):
             )
 
         # ── Parse JSON ──
-        data = self._parse_json(result.content or "")
+        data = self._parse_llm_json(result.content or "")
         if not data:
             return AgentResult(
                 success=False,
@@ -225,36 +225,4 @@ class ReviewAgent(BaseAgent[ReviewInput, ReviewOutput]):
 
         return AgentResult(success=True, output=output)
 
-    @staticmethod
-    def _parse_json(raw: str) -> dict | None:
-        """Parse JSON from LLM response, handling code fences and truncation."""
-        text = raw.strip()
-        if not text:
-            return None
-
         # Strip code fences
-        if text.startswith("```"):
-            text = text.split("\n", 1)[-1]
-        if text.endswith("```"):
-            text = text.rsplit("```", 1)[0]
-        text = text.strip()
-
-        # Try direct parse
-        try:
-            data = json.loads(text)
-            if isinstance(data, dict):
-                return data
-        except json.JSONDecodeError:
-            pass
-
-        # Fallback: regex search for JSON
-        try:
-            m = re.search(r"\{.*\}", text, re.DOTALL)
-            if m:
-                data = json.loads(m.group())
-                if isinstance(data, dict):
-                    return data
-        except (json.JSONDecodeError, Exception):
-            pass
-
-        return None
