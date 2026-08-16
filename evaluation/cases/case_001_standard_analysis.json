@@ -1,0 +1,27 @@
+{
+  "case_id": "case_001_standard_analysis",
+  "description": "Standard one-to-one competitive analysis.",
+  "tool": "analyze_competition",
+  "output_level": "standard",
+  "intelligence": null,
+  "input": {
+    "our_company": "Fliggy",
+    "competitor_company": "Meituan",
+    "product": "Hotel",
+    "objective": "product_improvement"
+  },
+  "expected": {
+    "required_dimensions": ["positioning", "users", "features", "business", "growth"],
+    "expected_insights": [
+      "At least one product gap is identified.",
+      "At least one competitive advantage is identified."
+    ],
+    "expected_outputs": [
+      "summary",
+      "comparison",
+      "recommendations",
+      "report_markdown",
+      "metadata"
+    ]
+  }
+}

@@ -18,6 +18,15 @@ SYSTEM_PROMPT = """你是一名资深的产品战略分析师。根据产品洞�
 4. SWOT 必须具体，不能泛泛而谈 — 每个条目引用具体洞察
 5. 每个 Recommendation 必须说明基于哪个 Insight/Gap（why）
 
+## 证据时效规则（Evidence Temporal Rules）
+
+- recent: 可以支撑当前竞争判断和确定性战略建议
+- aging: 可以支撑趋势判断，建议结合近期数据
+- stale: 不能作为唯一依据生成高确定性战略建议
+- historical: 只能用于历史背景和趋势判断，不能作为当前竞争优势或战略建议的唯一依据
+- 禁止仅基于 historical/stale 洞察生成高确定性（P0/P1）战略建议
+- 若洞察主要依赖 historical/stale 证据，必须在 rationale 中说明时效风险
+
 输出 JSON 结构：
 {
   "swot": {

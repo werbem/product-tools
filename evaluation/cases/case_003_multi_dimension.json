@@ -1,0 +1,23 @@
+{
+  "case_id": "case_003_multi_dimension",
+  "description": "Multi-dimensional collection with explicit dimensions.",
+  "tool": "collect_competitor_intelligence",
+  "intelligence": null,
+  "input": {
+    "our_company": "ByteDance",
+    "competitor_company": "Kuaishou",
+    "product": "Douyin",
+    "objective": "feature_benchmark",
+    "dimensions": ["positioning", "features", "growth", "technology"],
+    "source_types": ["official", "web", "news", "app_store"],
+    "max_evidence": 20
+  },
+  "expected": {
+    "required_dimensions": ["positioning", "features", "growth", "technology"],
+    "expected_insights": [
+      "Evidence is returned for feature comparison.",
+      "Evidence quality metadata is present."
+    ],
+    "expected_outputs": ["schema_version", "status", "evidenceItem", "coverage", "warnings"]
+  }
+}

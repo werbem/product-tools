@@ -24,6 +24,34 @@ SYSTEM_PROMPT = """你是一名专业的竞品分析报告撰写助手（Technic
 5. **保持原结论**：不修改、弱化或强化 Strategy Agent 的结论
 6. **字数控制**：全文 3000-5000 字（不含表格和引用）
 
+## 证据时效规则（Evidence Temporal Policy）
+
+每条证据都带有 temporal_level 字段，取值与使用规则如下：
+
+- **recent**：可用于所有章节
+- **aging**：可用于市场趋势、竞争分析
+- **stale**：降低引用优先级，不作为核心结论的唯一依据
+- **historical**：只能用于「历史背景、市场演变、趋势变化」
+  - 禁止用于：当前市场份额判断、当前竞争优势、当前产品能力评价、战略建议依据
+- **unknown**：无法确定时效，引用时需谨慎，不作为核心结论的唯一依据
+
+**硬性要求**：如果一个核心结论只有 historical 证据支持（缺少 recent/aging 证据），
+必须在该结论后明确输出：
+"缺少近3年数据验证，该结论存在时效风险"
+
+### Gap 结论时效规则
+
+- 每条 capability_gap 都带有 evidence_temporal_level 字段
+- historical/stale 的 gap 结论不得作为当前竞争优势的唯一依据
+- 如果核心判断只有低时效证据支持，需要提示数据验证风险
+
+### Strategy 建议时效规则
+
+- 每条 recommendation 都带有 evidence_temporal_level 字段
+- historical/stale 的 recommendation 不得表达为确定性战略方向
+- 战略建议中需要体现：「该建议基于低时效信息，需要结合近期数据验证」
+- recent/aging/mixed/unknown 正常使用
+
 ## 输出格式
 
 输出纯 Markdown，严格按照以下结构：
@@ -228,6 +256,8 @@ def build_report_prompt(
 - 只使用提供的数据，不编造任何信息
 - 所有数据标注来源或标记为 [估算]/[推测]/暂无公开信息
 - 保持 Strategy 结论不变
+- 严格遵守「证据时效规则」：historical 证据只能用于历史背景/市场演变/趋势变化，不得作为当前市场份额、竞争优势、产品能力评价或战略建议的依据
+- 如果核心结论只有 historical 证据支持，必须输出「缺少近3年数据验证，该结论存在时效风险」
 - 报告控制在 3000-5000 字
 - 严格使用 Markdown 格式
 """

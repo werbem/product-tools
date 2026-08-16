@@ -1,0 +1,19 @@
+{
+  "case_id": "case_002_no_data",
+  "description": "Collection returns no evidence and analysis should still return a valid response.",
+  "tool": "analyze_competition",
+  "output_level": "brief",
+  "intelligence": null,
+  "input": {
+    "our_company": "UnknownCompanyA",
+    "competitor_company": "UnknownCompanyB",
+    "product": "UnknownProduct",
+    "objective": "competitive_defense"
+  },
+  "expected": {
+    "expected_status": "no_data",
+    "required_dimensions": [],
+    "expected_insights": [],
+    "expected_outputs": ["status", "summary", "report_markdown"]
+  }
+}

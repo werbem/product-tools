@@ -1,0 +1,27 @@
+{
+  "version": "0.1",
+  "category": "mcp",
+  "metrics": [
+    {
+      "id": "latency",
+      "definition": "End-to-end tool invocation time in milliseconds.",
+      "unit": "ms",
+      "direction": "lower_better",
+      "source": "MCP client invocation duration"
+    },
+    {
+      "id": "failure_rate",
+      "definition": "Fraction of failed tool invocations.",
+      "range": [0.0, 1.0],
+      "direction": "lower_better",
+      "source": "MCP invocation status"
+    },
+    {
+      "id": "schema_validation",
+      "definition": "Whether the response passes the current MCP output schema.",
+      "range": [0.0, 1.0],
+      "direction": "higher_better",
+      "source": "MCP response schema validation"
+    }
+  ]
+}

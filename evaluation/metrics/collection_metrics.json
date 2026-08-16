@@ -1,0 +1,30 @@
+{
+  "version": "0.1",
+  "category": "collection",
+  "metrics": [
+    {
+      "id": "coverage_score",
+      "definition": "Fraction of required dimensions that have at least one returned evidence item.",
+      "range": [0.0, 1.0],
+      "direction": "higher_better",
+      "source": "collect_competitor_intelligence.coverage",
+      "formula": "matched_required_dimensions / total_required_dimensions"
+    },
+    {
+      "id": "evidence_quality_score",
+      "definition": "Average overall quality score of returned evidence items.",
+      "range": [0.0, 1.0],
+      "direction": "higher_better",
+      "source": "collect_competitor_intelligence.evidenceItem[].quality.overall",
+      "formula": "mean(evidenceItem.quality.overall)"
+    },
+    {
+      "id": "source_quality_score",
+      "definition": "Average source authority, freshness, and reliability across evidence.",
+      "range": [0.0, 1.0],
+      "direction": "higher_better",
+      "source": "collect_competitor_intelligence.evidenceItem[].source + quality",
+      "formula": "mean(authority, freshness, reliability)"
+    }
+  ]
+}

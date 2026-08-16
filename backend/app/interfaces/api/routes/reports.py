@@ -291,6 +291,20 @@ async def download_report(task_id: UUID):
     if not markdown:
         raise HTTPException(status_code=404, detail="Word文件不存在或尚未生成")
 
+    # 追加「附录：证据来源」——Word 生成器会渲染成列表（表格行会被跳过）
+    evidence_sources = report.get("evidence_sources") or []
+    if evidence_sources:
+        appendix_lines = ["", "## 附录：证据来源", ""]
+        for s in evidence_sources:
+            if not isinstance(s, dict) or not s.get("source_id"):
+                continue
+            sid = s["source_id"]
+            title = (s.get("title", "") or "").replace("|", "｜").replace("\n", " ")
+            date = s.get("date", "") or "-"
+            domain = s.get("domain", "") or s.get("source_type", "") or "-"
+            appendix_lines.append(f"- {sid} {title} | {date} | {domain}")
+        markdown = markdown + "\n" + "\n".join(appendix_lines)
+
     # Generate DOCX from markdown using python-docx
     try:
         doc = Document()

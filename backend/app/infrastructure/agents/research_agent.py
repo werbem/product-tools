@@ -16,7 +16,8 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import datetime
+import logging
+from datetime import datetime, timedelta
 from typing import Any
 
 from app.application.dto.agent_dto import (
@@ -43,6 +44,9 @@ from app.infrastructure.tools.source_selection import source_selection
 from app.infrastructure.tools.llm_router import llm_router
 
 
+logger = logging.getLogger(__name__)
+
+
 def _dget(obj, key, default=None):
     """Safe dict/object access."""
     if isinstance(obj, dict):
@@ -64,6 +68,113 @@ class ResearchAgent(BaseAgent[ResearchInput, ResearchOutput]):
     @property
     def phase(self) -> Phase:
         return Phase.RESEARCHING
+
+    # ── Temporal ranking helpers (P0: source-date passthrough + freshness fix) ──
+
+    _TEMPORAL_RANK: dict[str, int] = {
+        "recent": 0,
+        "aging": 1,
+        "unknown": 2,
+        "stale": 3,
+        "historical": 4,
+    }
+
+    @staticmethod
+    def _parse_date(date_str: str) -> datetime | None:
+        """Parse common date formats. Returns None when unparseable/empty."""
+        if not date_str:
+            return None
+        text = str(date_str).strip()
+        formats = [
+            "%Y-%m-%d", "%Y/%m/%d", "%Y-%m-%dT%H:%M:%S",
+            "%Y年%m月%d日", "%b %d, %Y", "%d %b %Y",
+            "%Y-%m-%dT%H:%M:%SZ", "%Y-%m-%d %H:%M:%S",
+        ]
+        for fmt in formats:
+            try:
+                return datetime.strptime(text, fmt)
+            except ValueError:
+                continue
+        try:
+            return datetime.fromisoformat(text.replace("Z", "+00:00"))
+        except (ValueError, TypeError):
+            return None
+
+    @classmethod
+    def _compute_temporal_level(cls, date_str: str) -> str:
+        """Derive temporal level from a date string.
+
+        recent       < 1 year
+        aging        1-3 years
+        stale        3-5 years
+        historical   >= 5 years
+        unknown      no/unparseable date
+        """
+        dt = cls._parse_date(date_str)
+        if dt is None:
+            return "unknown"
+        age = datetime.now() - dt.replace(tzinfo=None)
+        if age < timedelta(days=365):
+            return "recent"
+        if age < timedelta(days=365 * 3):
+            return "aging"
+        if age < timedelta(days=365 * 5):
+            return "stale"
+        return "historical"
+
+    @classmethod
+    def _resolve_evidence_date(cls, source_date: str, llm_date: str) -> str:
+        """Source date wins; fall back to LLM date only when source is empty."""
+        return (source_date or "").strip() or (llm_date or "").strip()
+
+    @classmethod
+    def _temporal_sort_key(cls, item) -> tuple[int, float]:
+        """Sort key: (temporal_level_rank, -overall_confidence)."""
+        qs = getattr(item, "quality_score", None) or {}
+        if not isinstance(qs, dict):
+            qs = {}
+        level = qs.get("temporal_level") or cls._compute_temporal_level(
+            getattr(item, "date", "")
+        )
+        rank = cls._TEMPORAL_RANK.get(level, cls._TEMPORAL_RANK["unknown"])
+        conf = qs.get("overall_confidence", 0.0)
+        if not isinstance(conf, (int, float)):
+            conf = 0.0
+        return (rank, -float(conf))
+
+    @classmethod
+    def _sort_evidence_by_temporal(cls, items: list) -> list:
+        """Attach temporal_level into quality_score and sort in place.
+
+        Priority: temporal_level (recent > aging > unknown > stale > historical)
+                  then overall_confidence descending.
+        """
+        for e in items:
+            qs = getattr(e, "quality_score", None) or {}
+            if not isinstance(qs, dict):
+                qs = {}
+            if not qs.get("temporal_level"):
+                qs["temporal_level"] = cls._compute_temporal_level(
+                    getattr(e, "date", "")
+                )
+            e.quality_score = qs
+        items.sort(key=cls._temporal_sort_key)
+        return items
+
+    @staticmethod
+    def _compute_aggregate_freshness(items: list) -> int | str:
+        """Aggregate real freshness_score (0-1) into 0-100; 'unknown' if absent."""
+        scores = []
+        for e in items:
+            qs = getattr(e, "quality_score", None) or {}
+            if not isinstance(qs, dict):
+                continue
+            fs = qs.get("freshness_score")
+            if isinstance(fs, (int, float)):
+                scores.append(float(fs))
+        if not scores:
+            return "unknown"
+        return round(sum(scores) / len(scores) * 100)
 
     async def arun(self, ctx: AgentContext, input_data: ResearchInput) -> AgentResult:
         """Execute evidence collection.
@@ -193,13 +304,27 @@ class ResearchAgent(BaseAgent[ResearchInput, ResearchOutput]):
                 )
 
                 if extraction_result.parsed and extraction_result.parsed.evidence_items:
+                    # Source published_date takes priority over LLM date.
+                    # Map url -> source date so LLM cannot overwrite a real date.
+                    source_date_map: dict[str, str] = {
+                        item.url: (getattr(item, "published_date", "") or "")
+                        for item in result.items
+                        if getattr(item, "url", "") and (getattr(item, "published_date", "") or "")
+                    }
                     for e in extraction_result.parsed.evidence_items:
+                        source_date = source_date_map.get(e.url, "") or ""
+                        llm_date = e.date or ""
+                        final_date = self._resolve_evidence_date(source_date, llm_date)
+                        logger.info(
+                            "Evidence date resolution url=%s source_date=%r llm_date=%r final_date=%r",
+                            e.url, source_date, llm_date, final_date,
+                        )
                         all_evidence.append(EvidenceItemDTO(
                             title=e.title,
                             source=e.source,
                             source_type=result.source_type,
                             url=e.url,
-                            date=e.date,
+                            date=final_date,
                             content=e.summary,
                             confidence=e.confidence,
                             category=e.dimension,
@@ -266,6 +391,12 @@ class ResearchAgent(BaseAgent[ResearchInput, ResearchOutput]):
                         deduped[i].confidence = "estimated"
             except Exception:
                 pass  # Evaluator failure is non-blocking
+
+        # Sort by temporal level (then overall confidence) so recent evidence
+        # is prioritized into the report's core citations, and old data
+        # (historical) is demoted out of the top slots.
+        if deduped:
+            self._sort_evidence_by_temporal(deduped)
 
         return deduped, search_summary
 
@@ -338,7 +469,7 @@ class ResearchAgent(BaseAgent[ResearchInput, ResearchOutput]):
             quality_score={
                 "overall": min(100, len(evidence_items) * 10),
                 "coverage": min(100, len(sources_used) * 10),
-                "freshness": 70,
+                "freshness": self._compute_aggregate_freshness(evidence_items),
             },
         )
 

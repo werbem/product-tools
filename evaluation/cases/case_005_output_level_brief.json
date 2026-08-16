@@ -1,0 +1,18 @@
+{
+  "case_id": "case_005_output_level_brief",
+  "description": "Brief output level should return a compact response.",
+  "tool": "analyze_competition",
+  "output_level": "brief",
+  "intelligence": null,
+  "input": {
+    "our_company": "Notion",
+    "competitor_company": "Coda",
+    "product": "Collaborative Docs",
+    "objective": "go_to_market"
+  },
+  "expected": {
+    "required_dimensions": ["positioning", "features", "business"],
+    "expected_insights": ["Brief summary is available."],
+    "expected_outputs": ["summary", "report_markdown", "metadata"]
+  }
+}

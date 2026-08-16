@@ -115,6 +115,21 @@ function preprocessEvidence(
   });
 }
 
+function buildEvidenceAppendixMd(sources?: EvidenceSource[]): string {
+  if (!sources || sources.length === 0) return "";
+  const rows = sources
+    .filter((s) => s.source_id)
+    .map((s) => {
+      const title = (s.title || "").replace(/\|/g, "｜").replace(/\n/g, " ");
+      const date = s.date || "-";
+      const domain = s.domain || s.source_type || "-";
+      return `| ${s.source_id} | ${title} | ${date} | ${domain} |`;
+    })
+    .join("\n");
+  if (!rows) return "";
+  return `\n\n## 附录：证据来源\n\n| 编号 | 标题 | 日期 | 来源 |\n|------|------|------|------|\n${rows}\n`;
+}
+
 export function ReportViewer({ markdown, html, wordUrl, evidenceSources }: ReportViewerProps) {
   const [useHtml, setUseHtml] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -136,6 +151,30 @@ export function ReportViewer({ markdown, html, wordUrl, evidenceSources }: Repor
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
+  };
+
+  const handleDownloadWord = () => {
+    if (!wordUrl) return;
+    const a = document.createElement("a");
+    a.href = wordUrl;
+    a.download = "竞品分析报告.docx";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  };
+
+  const handleDownloadMarkdown = () => {
+    if (!markdown) return;
+    const fullMarkdown = markdown + buildEvidenceAppendixMd(evidenceSources);
+    const blob = new Blob([fullMarkdown], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "竞品分析报告.md";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   };
 
   const displayMarkdown = preprocessEvidence(markdown || "", evidenceSources);
@@ -178,6 +217,24 @@ export function ReportViewer({ markdown, html, wordUrl, evidenceSources }: Repor
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {wordUrl && (
+            <Button variant="outline" size="sm" onClick={handleDownloadWord}>
+              <svg className="h-4 w-4 mr-1" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="7 10 12 15 17 10" />
+                <line x1="12" y1="15" x2="12" y2="3" />
+              </svg>
+              下载 Word
+            </Button>
+          )}
+          <Button variant="outline" size="sm" onClick={handleDownloadMarkdown} disabled={!markdown}>
+            <svg className="h-4 w-4 mr-1" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <polyline points="7 10 12 15 17 10" />
+              <line x1="12" y1="15" x2="12" y2="3" />
+            </svg>
+            下载 Markdown
+          </Button>
           <Button variant="outline" size="sm" onClick={handleCopy} disabled={!markdown}>
             {copied ? "已复制" : "复制 Markdown"}
           </Button>

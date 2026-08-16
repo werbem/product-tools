@@ -22,6 +22,53 @@ def _dget(obj, key, default=None):
     return getattr(obj, key, default)
 
 
+# Temporal priority for evidence sorting (recent first, historical last).
+_TEMPORAL_PRIORITY: dict[str, float] = {
+    "recent": 0.0,
+    "aging": 1.0,
+    "mixed": 1.5,
+    "unknown": 2.0,
+    "stale": 3.0,
+    "historical": 4.0,
+}
+_CONFIDENCE_RANK: dict[str, int] = {"high": 0, "medium": 1, "low": 2, "estimated": 3}
+
+
+def _get_temporal_level(item) -> str:
+    """Read temporal_level from quality_score (dict or object)."""
+    qs = _dget(item, "quality_score", None) or {}
+    if isinstance(qs, dict):
+        return qs.get("temporal_level", "") or ""
+    return getattr(qs, "temporal_level", "") or ""
+
+
+def _evidence_sort_key(item) -> tuple[float, int]:
+    """Sort evidence by temporal priority then confidence rank."""
+    level = _get_temporal_level(item) or "unknown"
+    confidence = _dget(item, "confidence", "estimated")
+    return (
+        _TEMPORAL_PRIORITY.get(level, 2.0),
+        _CONFIDENCE_RANK.get(confidence, 3),
+    )
+
+
+def _aggregate_temporal_levels(levels: list[str]) -> str:
+    """Aggregate temporal levels via 70% dominance rule."""
+    tiers = ["recent", "aging", "stale", "historical", "unknown"]
+    dist = {t: 0 for t in tiers}
+    for lvl in levels:
+        if lvl not in dist:
+            lvl = "unknown"
+        dist[lvl] += 1
+    total = sum(dist.values())
+    if total == 0:
+        return "unknown"
+    for t in tiers:
+        if dist[t] / total >= 0.70:
+            return t
+    return "mixed"
+
+
 class CompareAgent(BaseAgent[CompareInput, CompareOutput]):
 
     @property
@@ -32,16 +79,58 @@ class CompareAgent(BaseAgent[CompareInput, CompareOutput]):
     def phase(self) -> Phase:
         return Phase.COMPARING
 
+    @staticmethod
+    def _build_temporal_maps(
+        evidence_items: list,
+        clusters: list,
+    ) -> tuple[dict[str, str], dict[str, str]]:
+        """Map evidence/cluster id -> temporal_level for gap resolution."""
+        evidence_map: dict[str, str] = {}
+        for e in evidence_items:
+            eid = _dget(e, "id", "")
+            if eid:
+                evidence_map[str(eid)] = _get_temporal_level(e) or "unknown"
+
+        cluster_map: dict[str, str] = {}
+        for c in clusters:
+            if isinstance(c, dict):
+                cid = c.get("cluster_id", "")
+                level = c.get("temporal_level", "unknown") or "unknown"
+            else:
+                cid = getattr(c, "cluster_id", "")
+                level = getattr(c, "temporal_level", "unknown") or "unknown"
+            if cid:
+                cluster_map[str(cid)] = level
+        return evidence_map, cluster_map
+
+    @staticmethod
+    def _resolve_gap_temporal(
+        cluster_refs: list[str],
+        evidence_refs: list[str],
+        cluster_map: dict[str, str],
+        evidence_map: dict[str, str],
+    ) -> str:
+        """Compute a gap's evidence_temporal_level.
+
+        Priority: cluster.temporal_level; fallback: evidence_refs aggregation.
+        """
+        if cluster_refs:
+            levels = [cluster_map.get(str(cr)) for cr in cluster_refs if cluster_map.get(str(cr))]
+            if levels:
+                return _aggregate_temporal_levels(levels)
+        levels = [evidence_map.get(str(er)) for er in evidence_refs if evidence_map.get(str(er))]
+        if levels:
+            return _aggregate_temporal_levels(levels)
+        return "unknown"
+
     async def arun(self, ctx: AgentContext, input_data: CompareInput) -> AgentResult:
         # ── Dict-safe extraction of evidence items ──
         eb = input_data.evidence_bundle
         raw_items = _dget(eb, "evidence_items", [])
-        evidence_items = sorted(
-            raw_items,
-            key=lambda e: {"high": 0, "medium": 1, "low": 2, "estimated": 3}.get(_dget(e, "confidence", "estimated"), 3),
-        )[:12]
+        evidence_items = sorted(raw_items, key=_evidence_sort_key)[:12]
 
         clusters = input_data.evidence_clusters or []
+        evidence_map, cluster_map = self._build_temporal_maps(raw_items, clusters)
 
         if not evidence_items and not clusters:
             return AgentResult(success=True, output=CompareOutput(
@@ -52,7 +141,8 @@ class CompareAgent(BaseAgent[CompareInput, CompareOutput]):
         evidence_json = json.dumps([
             {"id": _dget(e, "id", ""), "title": _dget(e, "title", ""), "source": _dget(e, "source", ""), "url": _dget(e, "url", ""),
              "date": _dget(e, "date", ""), "dimension": _dget(e, "category", ""), "summary": (_dget(e, "content", "") or "")[:300],
-             "confidence": _dget(e, "confidence", "estimated")}
+             "confidence": _dget(e, "confidence", "estimated"),
+             "temporal_level": _get_temporal_level(e) or "unknown"}
             for e in evidence_items
         ], ensure_ascii=False, indent=2)
 
@@ -114,7 +204,7 @@ class CompareAgent(BaseAgent[CompareInput, CompareOutput]):
                 "llm_generated": False, "note": "LLM returned empty results",
             })
 
-        gap = self._build_gap_analysis(parsed, evidence_items)
+        gap = self._build_gap_analysis(parsed, evidence_items, cluster_map, evidence_map)
 
         all_refs = set()
         for d in parsed.differences:
@@ -134,7 +224,15 @@ class CompareAgent(BaseAgent[CompareInput, CompareOutput]):
             "capability_gaps_count": len(parsed.capability_gaps),
         })
 
-    def _build_gap_analysis(self, parsed, _evidence_items) -> GapAnalysis:
+    def _build_gap_analysis(
+        self,
+        parsed,
+        _evidence_items,
+        cluster_map: dict[str, str] | None = None,
+        evidence_map: dict[str, str] | None = None,
+    ) -> GapAnalysis:
+        cluster_map = cluster_map or {}
+        evidence_map = evidence_map or {}
         fm = []
         for d in parsed.differences:
             cluster_refs = getattr(d, 'cluster_refs', []) or []
@@ -155,14 +253,20 @@ class CompareAgent(BaseAgent[CompareInput, CompareOutput]):
             positioning=pos,
             features={"feature_matrix": fm, "overall_summary": parsed.overall_summary},
             gaps={
-                "competitive_advantages": [GapItem(description=a, impact="medium").model_dump() for a in parsed.advantages],
-                "competitive_disadvantages": [GapItem(description=d, impact="high").model_dump() for d in parsed.disadvantages],
+                "competitive_advantages": [GapItem(dimension="", description=a, impact="medium").model_dump() for a in parsed.advantages],
+                "competitive_disadvantages": [GapItem(dimension="", description=d, impact="high").model_dump() for d in parsed.disadvantages],
                 "capability_gaps": [GapItem(
                     dimension=cg.dimension,
                     description=f"{cg.title}: 我={cg.our_status} vs 竞={cg.competitor_status}. 用户:{cg.user_impact}. 业务:{cg.business_impact}",
                     evidence_refs=cg.evidence_refs,
                     cluster_refs=getattr(cg, "cluster_refs", []) or [],
                     impact="high",
+                    evidence_temporal_level=self._resolve_gap_temporal(
+                        getattr(cg, "cluster_refs", []) or [],
+                        cg.evidence_refs,
+                        cluster_map,
+                        evidence_map,
+                    ),
                 ).model_dump() for cg in parsed.capability_gaps],
             },
             evidence_references=sorted(set(ref for d in parsed.differences for ref in d.evidence_refs)),

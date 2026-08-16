@@ -239,6 +239,7 @@ class ReportAgent(BaseAgent[ReportInput, ReportOutput]):
                     "category": item.get("category", ""),
                     "confidence": item.get("confidence", ""),
                     "date": item.get("date", ""),
+                    "temporal_level": cls._resolve_temporal_level(item),
                 })
             else:
                 items.append({
@@ -250,8 +251,43 @@ class ReportAgent(BaseAgent[ReportInput, ReportOutput]):
                     "category": getattr(item, "category", ""),
                     "confidence": getattr(item, "confidence", ""),
                     "date": getattr(item, "date", ""),
+                    "temporal_level": cls._resolve_temporal_level(item),
                 })
         return json.dumps(items, ensure_ascii=False, indent=2)
+
+    @classmethod
+    def _resolve_temporal_level(cls, item) -> str:
+        """Read temporal_level from quality_score; fall back to date derivation.
+
+        temporal_level is computed by the Research Agent (P0) and cached in
+        quality_score. For legacy/missing data, derive it from the date year.
+        """
+        qs = cls._safe_get(item, "quality_score", None) or {}
+        if isinstance(qs, dict) and qs.get("temporal_level"):
+            return qs["temporal_level"]
+        date_str = cls._safe_get(item, "date", "") or ""
+        return cls._compute_temporal_level(date_str)
+
+    @staticmethod
+    def _compute_temporal_level(date_str: str) -> str:
+        """Year-based temporal level (fallback when quality_score lacks it)."""
+        if not date_str:
+            return "unknown"
+        m = re.search(r"(20\d{2})", str(date_str))
+        if not m:
+            return "unknown"
+        try:
+            year = int(m.group(1))
+        except (ValueError, TypeError):
+            return "unknown"
+        age = datetime.now().year - year
+        if age < 1:
+            return "recent"
+        if age < 3:
+            return "aging"
+        if age < 5:
+            return "stale"
+        return "historical"
 
     @staticmethod
     def _safe_get(obj, key, default=None):
@@ -307,7 +343,8 @@ class ReportAgent(BaseAgent[ReportInput, ReportOutput]):
             ],
             "capability_gaps": [
                 {"description": _safe_item(c, "description", ""),
-                 "evidence_refs": _safe_item(c, "evidence_refs", [])}
+                 "evidence_refs": _safe_item(c, "evidence_refs", []),
+                 "evidence_temporal_level": _safe_item(c, "evidence_temporal_level", "unknown")}
                 for c in (caps if isinstance(caps, list) else [])[:5]
             ],
             "advantages": [
@@ -376,7 +413,8 @@ class ReportAgent(BaseAgent[ReportInput, ReportOutput]):
                     result.append({"action": r.get("action", ""), "rationale": r.get("rationale", ""),
                                    "priority": r.get("priority", ""), "timeline": r.get("timeline", ""),
                                    "kpi": r.get("kpi", None), "expected_value": r.get("expected_value", ""),
-                                   "evidence_refs": r.get("evidence_refs", [])})
+                                   "evidence_refs": r.get("evidence_refs", []),
+                                   "evidence_temporal_level": r.get("evidence_temporal_level", "unknown")})
                 else:
                     result.append({"action": getattr(r, "action", ""),
                                    "rationale": getattr(r, "rationale", ""),
@@ -384,7 +422,8 @@ class ReportAgent(BaseAgent[ReportInput, ReportOutput]):
                                    "timeline": getattr(r, "timeline", ""),
                                    "kpi": getattr(r, "kpi", None),
                                    "expected_value": getattr(r, "expected_value", ""),
-                                   "evidence_refs": getattr(r, "evidence_refs", [])})
+                                   "evidence_refs": getattr(r, "evidence_refs", []),
+                                   "evidence_temporal_level": getattr(r, "evidence_temporal_level", "unknown")})
             return result
 
         def _risk_list(items):

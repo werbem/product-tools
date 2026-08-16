@@ -23,6 +23,7 @@ from app.infrastructure.agents.strategy_prompt import (
 from app.infrastructure.llm.client import llm_client
 
 _CONFIDENCE_WEIGHTS = {"high": 1.0, "medium": 0.6, "low": 0.3, "estimated": 0.1}
+_TEMPORAL_TIERS = ["recent", "aging", "stale", "historical", "unknown"]
 
 def _dget(obj, key, default=None):
     """Safe dict/object access — handles both Pydantic models and plain dicts."""
@@ -31,6 +32,22 @@ def _dget(obj, key, default=None):
     if isinstance(obj, dict):
         return obj.get(key, default)
     return getattr(obj, key, default)
+
+
+def _aggregate_temporal_levels(levels: list[str]) -> str:
+    """Aggregate temporal levels via 70% dominance rule."""
+    dist = {t: 0 for t in _TEMPORAL_TIERS}
+    for lvl in levels:
+        if lvl not in dist:
+            lvl = "unknown"
+        dist[lvl] += 1
+    total = sum(dist.values())
+    if total == 0:
+        return "unknown"
+    for t in _TEMPORAL_TIERS:
+        if dist[t] / total >= 0.70:
+            return t
+    return "mixed"
 
 
 class StrategyAgent(BaseAgent[StrategyInput, StrategyOutput]):
@@ -42,6 +59,53 @@ class StrategyAgent(BaseAgent[StrategyInput, StrategyOutput]):
     @property
     def phase(self) -> Phase:
         return Phase.STRATEGIZING
+
+    @staticmethod
+    def _build_insight_temporal_maps(
+        insights: list,
+    ) -> tuple[dict[str, str], dict[str, str]]:
+        """Map cluster/evidence id -> insight.evidence_temporal_level."""
+        cluster_map: dict[str, str] = {}
+        evidence_map: dict[str, str] = {}
+        for ins in insights:
+            if isinstance(ins, dict):
+                etl = ins.get("evidence_temporal_level", "unknown") or "unknown"
+                cluster_refs = ins.get("cluster_refs", []) or []
+                evidence_refs = ins.get("evidence_refs", []) or []
+            else:
+                etl = getattr(ins, "evidence_temporal_level", "unknown") or "unknown"
+                cluster_refs = getattr(ins, "cluster_refs", []) or []
+                evidence_refs = getattr(ins, "evidence_refs", []) or []
+            for cr in cluster_refs:
+                cluster_map[str(cr)] = etl
+            for er in evidence_refs:
+                evidence_map[str(er)] = etl
+        return cluster_map, evidence_map
+
+    @staticmethod
+    def _resolve_recommendation_temporal(
+        cluster_refs: list[str],
+        evidence_refs: list[str],
+        cluster_map: dict[str, str],
+        evidence_map: dict[str, str],
+    ) -> str:
+        """Inherit temporal from referenced insights (cluster first, evidence fallback)."""
+        if cluster_refs:
+            levels = [cluster_map.get(str(cr)) for cr in cluster_refs if cluster_map.get(str(cr))]
+            if levels:
+                return _aggregate_temporal_levels(levels)
+        levels = [evidence_map.get(str(er)) for er in evidence_refs if evidence_map.get(str(er))]
+        if levels:
+            return _aggregate_temporal_levels(levels)
+        return "unknown"
+
+    @staticmethod
+    def _apply_temporal_guard(rationale: str, temporal_level: str) -> str:
+        """Append a low-timeliness hint for historical/stale recommendations."""
+        if temporal_level in ("historical", "stale"):
+            hint = "该建议主要基于低时效数据，需要近期数据验证"
+            return (rationale + " " if rationale else "") + hint
+        return rationale
 
     async def arun(self, ctx: AgentContext, input_data: StrategyInput) -> AgentResult:
         eb = input_data.evidence_bundle
@@ -77,6 +141,7 @@ class StrategyAgent(BaseAgent[StrategyInput, StrategyOutput]):
         # ── Step 3.5: Build insights JSON ──
         insights_list = input_data.insights or []
         insights_json = json.dumps(insights_list, ensure_ascii=False, indent=2)
+        cluster_temporal_map, evidence_temporal_map = self._build_insight_temporal_maps(insights_list)
 
         # ── Step 4: Call LLM ──
         try:
@@ -144,13 +209,24 @@ class StrategyAgent(BaseAgent[StrategyInput, StrategyOutput]):
             for r in parsed.risks
         ]
 
-        recommendations = [
-            RecommendationItem(
-                action=r.action, rationale=r.rationale,
+        recommendations = []
+        for r in parsed.recommendations:
+            cluster_refs = getattr(r, "cluster_refs", []) or []
+            evidence_refs = r.evidence_refs or []
+            evidence_temporal_level = self._resolve_recommendation_temporal(
+                cluster_refs,
+                evidence_refs,
+                cluster_temporal_map,
+                evidence_temporal_map,
+            )
+            rationale = self._apply_temporal_guard(r.rationale, evidence_temporal_level)
+            recommendations.append(RecommendationItem(
+                action=r.action, rationale=rationale,
                 expected_value=r.expected_value, priority=r.priority,
-                timeline=r.timeline, evidence_refs=r.evidence_refs, kpi=r.kpi or None,
-            ) for r in parsed.recommendations
-        ]
+                timeline=r.timeline, evidence_refs=evidence_refs,
+                cluster_refs=cluster_refs, kpi=r.kpi or None,
+                evidence_temporal_level=evidence_temporal_level,
+            ))
 
         roadmap = {
             "phases": [

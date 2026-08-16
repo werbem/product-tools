@@ -1,0 +1,30 @@
+{
+  "version": "0.1",
+  "category": "analysis",
+  "metrics": [
+    {
+      "id": "completeness_score",
+      "definition": "Fraction of expected report sections present in the returned report.",
+      "range": [0.0, 1.0],
+      "direction": "higher_better",
+      "source": "analyze_competition.metadata.section_count",
+      "formula": "present_expected_sections / total_expected_sections"
+    },
+    {
+      "id": "insight_quality_score",
+      "definition": "Fraction of insights that are evidence-backed and have usable confidence.",
+      "range": [0.0, 1.0],
+      "direction": "higher_better",
+      "source": "analyze_competition.comparison / gaps",
+      "formula": "evidence_backed_insights / total_insights"
+    },
+    {
+      "id": "recommendation_score",
+      "definition": "Fraction of recommendations that include a rationale and evidence reference.",
+      "range": [0.0, 1.0],
+      "direction": "higher_better",
+      "source": "analyze_competition.recommendations",
+      "formula": "actionable_recommendations / total_recommendations"
+    }
+  ]
+}

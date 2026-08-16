@@ -95,6 +95,8 @@ class WorkflowState(TypedDict, total=False):
     # ── Agent outputs (accumulated) ──
     research_plan: Optional[dict[str, Any]]
     evidence_bundle: Optional[dict[str, Any]]
+    quality_report: Optional[dict[str, Any]]
+    collection_meta: Optional[dict[str, Any]]
     gap_analysis: Optional[dict[str, Any]]
     insights: Optional[dict[str, Any]]
     strategic_insights: Optional[dict[str, Any]]
@@ -135,6 +137,8 @@ def create_initial_state(user_input: dict[str, Any]) -> WorkflowState:
         progress=0.0,
         research_plan=None,
         evidence_bundle={},
+        quality_report=None,
+        collection_meta=None,
         gap_analysis={},
         insights=None,
         strategic_insights={},

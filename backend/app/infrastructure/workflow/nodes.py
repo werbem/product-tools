@@ -163,7 +163,9 @@ async def research_node(state: WorkflowState) -> dict[str, Any]:
                 from app.infrastructure.tools.evidence_clustering import evidence_clustering
                 cluster_inputs = [
                     {"id": e.id or f"e{i}", "title": e.title, "content": e.content,
-                     "source_type": e.source_type, "confidence": e.confidence}
+                     "source_type": e.source_type, "confidence": e.confidence,
+                     "date": getattr(e, "date", ""),
+                     "temporal_level": (getattr(e, "quality_score", None) or {}).get("temporal_level", "")}
                     for i, e in enumerate(ev_items)
                 ]
                 clusters_raw = await evidence_clustering.cluster(
@@ -176,6 +178,11 @@ async def research_node(state: WorkflowState) -> dict[str, Any]:
 
         return {
             "evidence_bundle": eb.model_dump() if eb and hasattr(eb, "model_dump") else (eb if isinstance(eb, dict) else {}),
+            "quality_report": (
+                result.output.quality_report.model_dump()
+                if result.output and hasattr(result.output, "quality_report") and hasattr(result.output.quality_report, "model_dump")
+                else {}
+            ),
             "clusters": clusters_list,
             "current_phase": "researched",
             "progress": 40.0,
@@ -185,6 +192,7 @@ async def research_node(state: WorkflowState) -> dict[str, Any]:
     return {
         "current_phase": "failed",
         "errors": list(state.get("errors", [])) + [result.error],
+        "quality_report": {},
         "phase_history": _push_phase(state, result.phase_record),
         "updated_at": datetime.utcnow().isoformat(),
     }
@@ -212,6 +220,8 @@ async def compare_node(state: WorkflowState) -> dict[str, Any]:
                     "content": e.get("content", ""),
                     "source_type": e.get("source_type", "web"),
                     "confidence": e.get("confidence", "medium"),
+                    "date": e.get("date", ""),
+                    "temporal_level": (e.get("quality_score") or {}).get("temporal_level", ""),
                 }
                 for i, e in enumerate(ev_items)
             ]

@@ -1,0 +1,52 @@
+{
+  "case_id": "case_004_existing_intelligence",
+  "description": "Analyze using externally supplied intelligence instead of collecting again.",
+  "tool": "analyze_competition",
+  "output_level": "standard",
+  "intelligence": {
+    "schema_version": "1.0",
+    "collection_id": "eval-collection-001",
+    "status": "completed",
+    "dimensions": ["features"],
+    "evidence": [
+      {
+        "finding_id": "E001",
+        "dimension": "features",
+        "finding": "Competitor product supports one-click checkout.",
+        "source": {
+          "name": "Official Website",
+          "type": "official",
+          "url": "https://example.com/checkout",
+          "published_at": "2026-01-01"
+        },
+        "confidence": "high",
+        "quality": {
+          "authority": 1.0,
+          "freshness": 0.8,
+          "relevance": 0.9,
+          "reliability": 0.8,
+          "overall": 0.85
+        }
+      }
+    ],
+    "coverage": {
+      "total_evidence": 1,
+      "returned_evidence": 1,
+      "sources_attempted": 1,
+      "sources_succeeded": 1,
+      "by_dimension": {"features": 1}
+    },
+    "warnings": []
+  },
+  "input": {
+    "our_company": "CompanyA",
+    "competitor_company": "CompanyB",
+    "product": "ProductX",
+    "objective": "product_improvement"
+  },
+  "expected": {
+    "required_dimensions": ["features"],
+    "expected_insights": ["Existing intelligence is used."],
+    "expected_outputs": ["summary", "comparison", "report_markdown", "metadata"]
+  }
+}

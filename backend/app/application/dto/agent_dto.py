@@ -162,6 +162,7 @@ class GapItem(BaseModel):
     evidence_refs: list[str] = Field(default_factory=list)
     cluster_refs: list[str] = Field(default_factory=list)
     impact: str = "medium"
+    evidence_temporal_level: str = "unknown"
 
 
 class GapAnalysis(BaseModel):
@@ -188,6 +189,7 @@ class ProductInsight(BaseModel):
     confidence: str = "medium"  # high | medium | low
     impact: str = "medium"  # high | medium | low
     dimension: str = ""
+    evidence_temporal_level: str = "unknown"
 
 
 class InsightInput(BaseModel):
@@ -274,6 +276,7 @@ class RecommendationItem(BaseModel):
     evidence_refs: list[str] = Field(default_factory=list)
     cluster_refs: list[str] = Field(default_factory=list)
     kpi: Optional[str] = None
+    evidence_temporal_level: str = "unknown"
 
 
 class RoadmapPhase(BaseModel):

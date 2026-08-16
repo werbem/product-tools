@@ -27,6 +27,31 @@ from app.infrastructure.agents.insight_prompt import (
 from app.infrastructure.llm.client import llm_client
 
 
+_TEMPORAL_TIERS = ["recent", "aging", "stale", "historical", "unknown"]
+_CONFIDENCE_DOWNGRADE = {
+    "high": "medium",
+    "medium": "low",
+    "low": "low",
+    "estimated": "estimated",
+}
+
+
+def _aggregate_temporal_levels(levels: list[str]) -> str:
+    """Aggregate temporal levels via 70% dominance rule."""
+    dist = {t: 0 for t in _TEMPORAL_TIERS}
+    for lvl in levels:
+        if lvl not in dist:
+            lvl = "unknown"
+        dist[lvl] += 1
+    total = sum(dist.values())
+    if total == 0:
+        return "unknown"
+    for t in _TEMPORAL_TIERS:
+        if dist[t] / total >= 0.70:
+            return t
+    return "mixed"
+
+
 class InsightAgent(BaseAgent[InsightInput, InsightOutput]):
 
     @property
@@ -37,9 +62,109 @@ class InsightAgent(BaseAgent[InsightInput, InsightOutput]):
     def phase(self) -> Phase:
         return Phase.INSIGHTING
 
+    @staticmethod
+    def _build_temporal_maps(
+        clusters: list,
+        gaps: dict,
+    ) -> tuple[dict[str, str], dict[str, str]]:
+        """Map cluster id -> temporal_level and evidence id -> gap temporal_level."""
+        cluster_map: dict[str, str] = {}
+        for c in clusters:
+            if isinstance(c, dict):
+                cid = c.get("cluster_id", "")
+                level = c.get("temporal_level", "unknown") or "unknown"
+            else:
+                cid = getattr(c, "cluster_id", "")
+                level = getattr(c, "temporal_level", "unknown") or "unknown"
+            if cid:
+                cluster_map[str(cid)] = level
+
+        gap_evidence_map: dict[str, str] = {}
+        gaps_inner = (gaps or {}).get("gaps", {}) if isinstance(gaps, dict) else {}
+        capability_gaps = gaps_inner.get("capability_gaps", []) if isinstance(gaps_inner, dict) else []
+        for gap in capability_gaps:
+            if not isinstance(gap, dict):
+                continue
+            etl = gap.get("evidence_temporal_level", "unknown") or "unknown"
+            for er in gap.get("evidence_refs", []) or []:
+                gap_evidence_map[str(er)] = etl
+
+        return cluster_map, gap_evidence_map
+
+    @staticmethod
+    def _resolve_insight_temporal(
+        cluster_refs: list[str],
+        evidence_refs: list[str],
+        cluster_map: dict[str, str],
+        gap_evidence_map: dict[str, str],
+    ) -> str:
+        """Compute insight evidence_temporal_level (cluster first, gap fallback)."""
+        if cluster_refs:
+            levels = [cluster_map.get(str(cr)) for cr in cluster_refs if cluster_map.get(str(cr))]
+            if levels:
+                return _aggregate_temporal_levels(levels)
+        levels = [gap_evidence_map.get(str(er)) for er in evidence_refs if gap_evidence_map.get(str(er))]
+        if levels:
+            return _aggregate_temporal_levels(levels)
+        return "unknown"
+
+    @staticmethod
+    def _apply_temporal_guard(
+        insight_type: str,
+        confidence: str,
+        impact: str,
+        temporal_level: str,
+        description: str,
+    ) -> tuple[str, str]:
+        """Apply temporal guard: adjust confidence + append risk hint."""
+        new_confidence = confidence
+        hint = ""
+        if temporal_level in ("historical", "stale"):
+            if insight_type == "hypothesis":
+                new_confidence = "low"
+            elif insight_type == "observation":
+                new_confidence = _CONFIDENCE_DOWNGRADE.get(confidence, "low")
+            # fact: keep confidence
+            hint = "该洞察主要基于低时效数据，需要近期数据验证"
+            if impact == "high":
+                hint += "；该洞察影响等级高，需谨慎采纳"
+        if hint:
+            description = (description + " " if description else "") + hint
+        return new_confidence, description
+
+    @staticmethod
+    def _apply_quality_gate(
+        insight_type: str,
+        confidence: str,
+        evidence_refs: list[str],
+        cluster_refs: list[str],
+        description: str,
+    ) -> tuple[bool, str, str]:
+        """Rule-based quality gate for insights.
+
+        Returns (keep, confidence, description).
+        - BLOCK: fact/hypothesis with zero evidence (hallucination).
+        - WARN: hypothesis backed by a single evidence reference (weak chain).
+        """
+        evidence_count = len(evidence_refs or []) + len(cluster_refs or [])
+
+        # Rule 1 & 2: fact/hypothesis without any evidence → block
+        if insight_type in ("fact", "hypothesis") and evidence_count == 0:
+            return (False, confidence, description)
+
+        # Rule 3: weak hypothesis (fewer than 2 references) → warn
+        if insight_type == "hypothesis" and evidence_count < 2:
+            new_confidence = _CONFIDENCE_DOWNGRADE.get(confidence, "low")
+            hint = "该假设基于有限证据，需要进一步验证"
+            new_description = (description + " " if description else "") + hint
+            return (True, new_confidence, new_description)
+
+        return (True, confidence, description)
+
     async def arun(self, ctx: AgentContext, input_data: InsightInput) -> AgentResult:
         clusters = input_data.evidence_clusters or []
         gaps = input_data.gap_analysis or {}
+        cluster_map, gap_evidence_map = self._build_temporal_maps(clusters, gaps)
 
         if not clusters and not gaps.get("gaps", {}).get("capability_gaps", []):
             return AgentResult(success=True, output=InsightOutput(
@@ -81,15 +206,38 @@ class InsightAgent(BaseAgent[InsightInput, InsightOutput]):
 
         insights = []
         for item in parsed.insights:
+            evidence_temporal_level = self._resolve_insight_temporal(
+                item.cluster_refs,
+                item.evidence_refs,
+                cluster_map,
+                gap_evidence_map,
+            )
+            confidence, description = self._apply_temporal_guard(
+                item.type,
+                item.confidence,
+                item.impact,
+                evidence_temporal_level,
+                item.description,
+            )
+            keep, confidence, description = self._apply_quality_gate(
+                item.type,
+                confidence,
+                item.evidence_refs,
+                item.cluster_refs,
+                description,
+            )
+            if not keep:
+                continue
             insights.append(ProductInsight(
                 title=item.title,
                 type=item.type,
-                description=item.description,
+                description=description,
                 evidence_refs=item.evidence_refs,
                 cluster_refs=item.cluster_refs,
-                confidence=item.confidence,
+                confidence=confidence,
                 impact=item.impact,
                 dimension=item.dimension,
+                evidence_temporal_level=evidence_temporal_level,
             ))
 
         facts = sum(1 for i in insights if i.type == "fact")

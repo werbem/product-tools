@@ -31,6 +31,16 @@ SYSTEM_PROMPT = """你是产品策略洞察分析师。从证据聚类和竞品�
 4. 按 impact 排序：high > medium > low
 5. 每种类型至少生成 1 条（如果证据充分）
 
+## Evidence Temporal Rules
+
+- recent: 支持当前竞争分析和洞察
+- aging: 支持趋势分析
+- stale: 不能作为唯一依据形成高影响判断
+- historical: 只能描述历史演变，不能支撑当前竞争优势判断
+- historical 不能作为当前市场判断的唯一依据
+- hypothesis 不得仅依赖 historical/stale 证据
+- 若缺少近期数据，需要在洞察描述中明确说明
+
 ## 输出格式 (JSON)
 
 {
