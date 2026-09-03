@@ -55,16 +55,11 @@ echo -e "${GREEN}✅ Frontend dependencies installed${NC}"
 
 echo ""
 
-# ── Build frontend if not built ──
-if [ ! -d "$ROOT_DIR/frontend/.next" ]; then
-    echo "🏗️  Building frontend..."
-    cd "$ROOT_DIR/frontend"
-    pnpm build
-    echo -e "${GREEN}✅ Frontend built${NC}"
-    echo ""
-fi
+# ── Frontend dev cache ──
+# Reusing a production .next with `pnpm dev` causes missing-chunk 500 on /workspace.
+rm -rf "$ROOT_DIR/frontend/.next"
 
-# ── Kill any existing processes on target ports ──
+# ── Start services ──
 echo "🧹 Cleaning ports 8000 and 3000..."
 lsof -ti:8000 -ti:3000 | xargs kill -9 2>/dev/null || true
 sleep 1
@@ -89,7 +84,7 @@ trap cleanup SIGINT SIGTERM
 # Start backend
 cd "$ROOT_DIR/backend"
 source venv/bin/activate
-python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 &
+python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1 &
 BACKEND_PID=$!
 echo -e "  Backend:  ${GREEN}http://localhost:8000${NC} (PID: $BACKEND_PID)"
 

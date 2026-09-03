@@ -156,7 +156,7 @@ export default function AnalysisProgressPage({
       }
       // Normal flow: task already exists in backend
       setState({ type: "polling", taskId, serverTaskId: taskId });
-    }).catch(() => router.push("/"));
+    }).catch(() => router.push("/workspace"));
   }, [params, router]);
 
   // Handle the "creating" phase — POST to backend, then start polling
@@ -413,7 +413,7 @@ export default function AnalysisProgressPage({
       sessionStorage.removeItem(SS_START_TIME(state.serverTaskId));
       sessionStorage.removeItem(SS_COMPLETED_STEPS(state.serverTaskId));
     }
-    router.push("/");
+    router.push("/workspace");
   }, [router, state]);
 
   // ── Helper for start time ──
@@ -484,7 +484,7 @@ export default function AnalysisProgressPage({
       <div className="max-w-lg mx-auto text-center space-y-4 py-12">
         <div className="text-4xl">⏰</div>
         <h2 className="text-xl font-semibold">分析超时</h2>
-        <p className="text-muted-foreground">分析超过 5 分钟仍未完成，请稍后重试</p>
+        <p className="text-muted-foreground">分析超过 12 分钟仍未完成，请稍后重试</p>
         <div className="flex justify-center gap-3">
           <Button variant="outline" onClick={handleCancel}>返回首页</Button>
           <Button onClick={() => window.location.reload()}>重试</Button>

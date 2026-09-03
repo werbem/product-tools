@@ -164,34 +164,67 @@ class InsightAgent(BaseAgent[InsightInput, InsightOutput]):
     async def arun(self, ctx: AgentContext, input_data: InsightInput) -> AgentResult:
         clusters = input_data.evidence_clusters or []
         gaps = input_data.gap_analysis or {}
+        flat_items = list(input_data.flat_evidence_items or [])
         cluster_map, gap_evidence_map = self._build_temporal_maps(clusters, gaps)
 
-        if not clusters and not gaps.get("gaps", {}).get("capability_gaps", []):
-            return AgentResult(success=True, output=InsightOutput(
-                insights=[], summary="证据不足，无法生成洞察",
-            ), phase_record={"phase": "insighting", "status": "no_data"})
-
-        clusters_json = json.dumps(clusters, ensure_ascii=False, indent=2)
-        gaps_json = json.dumps(gaps, ensure_ascii=False, indent=2)
+        has_caps = bool((gaps.get("gaps") or {}).get("capability_gaps", [])) if isinstance(gaps, dict) else False
+        use_flat = False
+        if not clusters and not has_caps:
+            if not flat_items:
+                return AgentResult(success=True, output=InsightOutput(
+                    insights=[], summary="证据不足，无法生成洞察",
+                ), phase_record={
+                    "phase": "insighting",
+                    "status": "no_data",
+                    "insight_skipped_empty_gap": True,
+                    "insight_flat_evidence": False,
+                })
+            use_flat = True
 
         objective = input_data.objective or (
             f"分析 {input_data.competitor_company} 的 {input_data.product}"
         )
+        gaps_json = json.dumps(gaps, ensure_ascii=False, indent=2)
+        if use_flat:
+            from app.infrastructure.agents.insight_prompt import build_flat_insight_prompt
+            evidence_json = json.dumps([
+                {
+                    "id": (e.get("id") if isinstance(e, dict) else getattr(e, "id", "")),
+                    "title": (e.get("title") if isinstance(e, dict) else getattr(e, "title", "")),
+                    "summary": ((e.get("content") if isinstance(e, dict) else getattr(e, "content", "")) or "")[:250],
+                    "confidence": (e.get("confidence") if isinstance(e, dict) else getattr(e, "confidence", "medium")),
+                }
+                for e in flat_items[:12]
+            ], ensure_ascii=False, indent=2)
+            user_prompt = build_flat_insight_prompt(
+                our_company=input_data.our_company,
+                competitor_company=input_data.competitor_company,
+                product=input_data.product,
+                objective=objective,
+                evidence_json=evidence_json,
+                gaps_json=gaps_json,
+            )
+        else:
+            clusters_json = json.dumps(clusters, ensure_ascii=False, indent=2)
+            user_prompt = build_insight_prompt(
+                our_company=input_data.our_company,
+                competitor_company=input_data.competitor_company,
+                product=input_data.product,
+                objective=objective,
+                clusters_json=clusters_json,
+                gaps_json=gaps_json,
+            )
 
         try:
-            result = await llm_client.generate(
-                system_prompt=SYSTEM_PROMPT,
-                user_prompt=build_insight_prompt(
-                    our_company=input_data.our_company,
-                    competitor_company=input_data.competitor_company,
-                    product=input_data.product,
-                    objective=objective,
-                    clusters_json=clusters_json,
-                    gaps_json=gaps_json,
-                ),
-                response_model=None,
-                temperature=0.4,
-            )
+            gen_kwargs: dict = {
+                "system_prompt": SYSTEM_PROMPT,
+                "user_prompt": user_prompt,
+                "response_model": None,
+                "temperature": 0.4,
+            }
+            if input_data.llm_timeout_seconds is not None:
+                gen_kwargs["timeout"] = input_data.llm_timeout_seconds
+            result = await llm_client.generate(**gen_kwargs)
         except Exception:
             return AgentResult(success=False, output=InsightOutput(),
                 error="LLM调用失败",
@@ -202,7 +235,13 @@ class InsightAgent(BaseAgent[InsightInput, InsightOutput]):
         if not parsed or not parsed.insights:
             return AgentResult(success=True, output=InsightOutput(
                 insights=[], summary="LLM未生成洞察",
-            ), phase_record={"phase": "insighting", "status": "completed", "insight_count": 0})
+            ), phase_record={
+                "phase": "insighting",
+                "status": "completed",
+                "insight_count": 0,
+                "insight_flat_evidence": use_flat,
+                "insight_skipped_empty_gap": False,
+            })
 
         insights = []
         for item in parsed.insights:
@@ -254,6 +293,8 @@ class InsightAgent(BaseAgent[InsightInput, InsightOutput]):
             "phase": "insighting", "status": "completed",
             "insight_count": len(insights),
             "fact_count": facts, "observation_count": obs, "hypothesis_count": hyps,
+            "insight_flat_evidence": use_flat,
+            "insight_skipped_empty_gap": False,
         })
 
     @staticmethod

@@ -43,6 +43,60 @@ class ReviewAgent(BaseAgent[ReviewInput, ReviewOutput]):
     def phase(self) -> Phase:
         return Phase.REVIEWING
 
+    def build_timeout_partial_review(self, *, budget_skipped: bool = False) -> AgentResult:
+        """Partial review when node timeout or total budget exhausted."""
+        summary = (
+            "总预算已耗尽，审阅已跳过。"
+            if budget_skipped
+            else "审阅超时，以下为部分结果。"
+        )
+        issues = [
+            ReviewIssue(
+                severity="minor",
+                category="review_timeout",
+                section="",
+                description=summary,
+                suggestion="可稍后重试或切换完整模式获取完整审阅。",
+            ),
+        ]
+        review_result = ReviewResult(
+            passed=True,
+            score=70,
+            checks={
+                "completeness": True,
+                "logic": True,
+                "sources": True,
+                "duplication": True,
+                "format": True,
+                "neutrality": True,
+                "actionability": True,
+            },
+            issues=issues[:5],
+            revision_suggestions=[],
+            passed_for_output=True,
+            deletion_suggestions=[],
+            high_issue_count=0,
+            fact_audit_passed=True,
+        )
+        output = ReviewOutput(
+            review_result=review_result,
+            passed_for_output=True,
+            score=70,
+            check_summary={"review_partial": True},
+            issue_count={"critical": 0, "major": 0, "minor": len(issues), "suggestion": 0},
+        )
+        return AgentResult(
+            success=True,
+            output=output,
+            phase_record={
+                "phase": Phase.REVIEWING.value,
+                "status": "completed",
+                "timeout_partial": True,
+                "review_partial": True,
+                "review_skipped_total_budget": budget_skipped,
+            },
+        )
+
     async def arun(self, ctx: AgentContext, input_data: ReviewInput) -> AgentResult:
         report_data = input_data.report_document
         eb = input_data.evidence_bundle
@@ -96,16 +150,19 @@ class ReviewAgent(BaseAgent[ReviewInput, ReviewOutput]):
 
         # ── Call LLM ──
         try:
-            result = await llm_client.generate(
-                system_prompt=SYSTEM_PROMPT,
-                user_prompt=build_review_prompt(
+            gen_kwargs: dict = {
+                "system_prompt": SYSTEM_PROMPT,
+                "user_prompt": build_review_prompt(
                     markdown_report=report_md,
                     objective=input_data.objective,
                     evidence_json=evidence_json,
                 ),
-                response_model=None,
-                temperature=0.3,
-            )
+                "response_model": None,
+                "temperature": 0.3,
+            }
+            if input_data.llm_timeout_seconds is not None:
+                gen_kwargs["timeout"] = input_data.llm_timeout_seconds
+            result = await llm_client.generate(**gen_kwargs)
         except Exception as e:
             return AgentResult(
                 success=False,

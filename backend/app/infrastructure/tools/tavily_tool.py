@@ -28,6 +28,9 @@ async def tavily_search(
     max_results: int = 10,
     search_depth: str = "advanced",
     include_raw_content: bool = True,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    time_range: str | None = None,
 ) -> TavilyResult:
     """Execute a search via Tavily API.
 
@@ -36,6 +39,9 @@ async def tavily_search(
         max_results: Max 20
         search_depth: "basic" or "advanced"
         include_raw_content: Whether to include full page content
+        start_date: Optional YYYY-MM-DD lower bound (Tavily start_date)
+        end_date: Optional YYYY-MM-DD upper bound
+        time_range: Optional day|week|month|year (coarser; prefer start_date for multi-year)
 
     Returns:
         TavilyResult with standardized structure:
@@ -59,6 +65,12 @@ async def tavily_search(
         "include_images": False,
         "include_answer": False,
     }
+    if start_date:
+        payload["start_date"] = str(start_date)[:10]
+    if end_date:
+        payload["end_date"] = str(end_date)[:10]
+    if time_range and not start_date:
+        payload["time_range"] = str(time_range)
 
     try:
         async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:

@@ -27,6 +27,12 @@ SYSTEM_PROMPT = """你是一名资深的产品战略分析师。根据产品洞�
 - 禁止仅基于 historical/stale 洞察生成高确定性（P0/P1）战略建议
 - 若洞察主要依赖 historical/stale 证据，必须在 rationale 中说明时效风险
 
+## 项目记忆与企业笔记（若用户消息含此类背景）
+
+- 记忆/笔记**不是**本轮爬取 Evidence，禁止 invent evidence_refs / [E00x]
+- 与本轮证据冲突时以本轮 Evidence 为准，可在 rationale 注明「与历史结论差异」
+- 仅由记忆/笔记支撑的结论 → confidence="low" 或 missing_information；不得仅凭笔记写高置信 P0/P1
+
 输出 JSON 结构：
 {
   "swot": {
@@ -194,8 +200,15 @@ def build_strategy_prompt(
     gap_summary: str,
     evidence_json: str,
     insights_json: str = "[]",
+    *,
+    memory_notes_context: str | None = None,
 ) -> str:
     """Build the strategy prompt from insights + gap analysis + evidence."""
+    from app.application.services.context_blocks import (
+        STRATEGY_CONTEXT_RULES,
+        append_context_to_prompt,
+    )
+
     prompt = (
         "## 分析目标\n"
         f"- 目标: {objective}\n"
@@ -217,4 +230,73 @@ def build_strategy_prompt(
         "6. 如果某方面证据不足，标注 confidence=\"low\"，放入 missing_information\n"
         "7. 严格按 JSON 格式输出\n"
     )
-    return prompt
+    return append_context_to_prompt(
+        prompt, memory_notes_context, rules=STRATEGY_CONTEXT_RULES,
+    )
+
+
+COMPACT_STRATEGY_SYSTEM = """你是产品战略分析师。只输出严格 JSON，短句。
+SWOT 每象限 ≤3 条；每条 conclusion ≤30 字并含 evidence_refs。
+recommendations ≤3。禁止长战略叙事。
+主证据应视为近 4 年内材料。
+时效约束：若证据 date_semantic=event_date、temporal_level 为 historical/unknown，或 date 缺失，
+不得写成「近期/最新」；最多作背景，应写「据公开资料（日期不详/历史事件）」。
+若含项目记忆/企业笔记：不得 invent evidence_refs；仅笔记支撑 → confidence=low；不得仅凭笔记写高置信 P0/P1。"""
+
+
+def build_strategy_prompt_compact(
+    objective: str,
+    product: str,
+    gap_summary: str,
+    evidence_json: str,
+    insights_json: str = "[]",
+    *,
+    research_incomplete: bool = False,
+    memory_notes_context: str | None = None,
+) -> str:
+    from app.application.services.context_blocks import (
+        STRATEGY_CONTEXT_RULES,
+        append_context_to_prompt,
+    )
+
+    note = ""
+    if research_incomplete:
+        note = "\n> 证据可能不完整，仍须基于现有材料给出结构化 SWOT/建议。\n"
+    prompt = f"""## 目标
+- 目标: {objective}
+- 产品: {product}
+{note}
+## 差距摘要（已压缩）
+{gap_summary[:1200]}
+
+## 洞察（可为空）
+{insights_json[:1500]}
+
+## 证据（已截断）
+{evidence_json}
+
+## 任务（compact）
+输出 JSON：
+{{
+  "swot": {{
+    "strengths": [{{"conclusion":"≤30字","evidence_refs":["E001"],"confidence":"medium"}}],
+    "weaknesses": [...],
+    "opportunities": [...],
+    "threats": [...]
+  }},
+  "recommendations": [{{"action":"≤30字","rationale":"≤40字","priority":"p1","evidence_refs":["E001"]}}],
+  "overall_confidence": "medium"
+}}
+每象限 ≤3 条；recommendations ≤3；不要 roadmap/opportunities/risks 长文。仅 JSON。
+主证据视为近 4 年内材料；event_date/historical/unknown/无日期禁止写「近期/最新」。"""
+    return append_context_to_prompt(
+        prompt, memory_notes_context, rules=STRATEGY_CONTEXT_RULES,
+    )
+
+def build_strategy_repair_prompt(broken_text: str) -> str:
+    excerpt = (broken_text or "")[:2500]
+    return (
+        "修复为合法 Strategy JSON，至少包含 swot 或 recommendations。"
+        "不要 markdown。\n\n"
+        f"```\n{excerpt}\n```"
+    )

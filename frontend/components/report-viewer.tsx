@@ -94,11 +94,17 @@ function escapeTitle(s: string): string {
   return s.replace(/"/g, "'");
 }
 
+function normalizeTableBreaks(md: string): string {
+  // Markdown tables cannot render HTML <br>; use Chinese semicolon like the backend.
+  return md.replace(/<br\s*\/?\s*>/gi, "；");
+}
+
 function preprocessEvidence(
   md: string,
   sources?: EvidenceSource[],
   _mode?: string,
 ): string {
+  md = normalizeTableBreaks(md);
   if (!md || !sources || sources.length === 0) return md;
   const map = buildEvidenceMap(sources);
 

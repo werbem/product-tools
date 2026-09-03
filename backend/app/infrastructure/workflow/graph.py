@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from langgraph.graph import END, StateGraph
 
+from app.infrastructure.workflow.analysis_mode import resolve_mode_config
 from app.infrastructure.workflow.nodes import (
     compare_node,
     insight_node,
@@ -31,22 +32,40 @@ def _route_from_validate(state: WorkflowState) -> str:
     return "plan_node" if cp == "validated" else "fail_node"
 
 
-def _route_from_strategy(state: WorkflowState) -> str:
-    """After strategy: always go to report (even with limited evidence).
+def _route_after_research(state: WorkflowState) -> str:
+    """Fast mode skips Compare and routes directly to Report."""
+    cfg = resolve_mode_config(state)
+    if cfg.skip_compare:
+        return "report_node"
+    return "compare_node"
 
-    Previously, insufficient evidence routed to need_research_node (dead end).
-    Now we always generate a report — lower quality is better than no report.
-    The report agent will note when evidence is limited.
-    """
-    return "report_node"
+
+def _route_after_compare(state: WorkflowState) -> str:
+    """Fast mode skips insight/strategy and goes straight to report."""
+    cfg = resolve_mode_config(state)
+    if cfg.skip_insight and cfg.skip_strategy:
+        return "report_node"
+    if cfg.skip_insight:
+        return "strategy_node"
+    return "insight_node"
+
+
+def _route_after_insight(state: WorkflowState) -> str:
+    cfg = resolve_mode_config(state)
+    if cfg.skip_strategy:
+        return "report_node"
+    return "strategy_node"
+
+
+def _route_after_report(state: WorkflowState) -> str:
+    cfg = resolve_mode_config(state)
+    if cfg.skip_review:
+        return "finalize_node"
+    return "review_node"
 
 
 def _route_from_review(state: WorkflowState) -> str:
-    """After review: always finalize (review is advisory, not a gate).
-
-    Review issues are recorded in the state for display in the final report.
-    The report is always delivered regardless of review score.
-    """
+    """After review: always finalize (review is advisory, not a gate)."""
     return "finalize_node"
 
 
@@ -78,15 +97,42 @@ def build_workflow_graph() -> StateGraph:
         {"plan_node": "plan_node", "fail_node": "fail_node", "finalize_node": "finalize_node"},
     )
 
-    # ── Main pipeline (sequential) ──
+    # ── Main pipeline ──
     graph.add_edge("plan_node", "research_node")
-    graph.add_edge("research_node", "compare_node")
-    graph.add_edge("compare_node", "insight_node")
-    graph.add_edge("insight_node", "strategy_node")
-
-    # ── Strategy → always report (evidence limitation noted in report) ──
+    graph.add_conditional_edges(
+        "research_node",
+        _route_after_research,
+        {
+            "compare_node": "compare_node",
+            "report_node": "report_node",
+        },
+    )
+    graph.add_conditional_edges(
+        "compare_node",
+        _route_after_compare,
+        {
+            "insight_node": "insight_node",
+            "strategy_node": "strategy_node",
+            "report_node": "report_node",
+        },
+    )
+    graph.add_conditional_edges(
+        "insight_node",
+        _route_after_insight,
+        {
+            "strategy_node": "strategy_node",
+            "report_node": "report_node",
+        },
+    )
     graph.add_edge("strategy_node", "report_node")
-    graph.add_edge("report_node", "review_node")
+    graph.add_conditional_edges(
+        "report_node",
+        _route_after_report,
+        {
+            "review_node": "review_node",
+            "finalize_node": "finalize_node",
+        },
+    )
 
     # ── Review → always finalize ──
     graph.add_conditional_edges(
@@ -99,7 +145,6 @@ def build_workflow_graph() -> StateGraph:
         },
     )
 
-    # ── Terminals ──
     graph.add_edge("finalize_node", END)
     graph.add_edge("fail_node", END)
     graph.add_edge("need_research_node", END)
@@ -107,5 +152,5 @@ def build_workflow_graph() -> StateGraph:
     return graph.compile()
 
 
-# Compiled singleton
+# Module-level compiled graph used by launcher / API.
 workflow_graph = build_workflow_graph()

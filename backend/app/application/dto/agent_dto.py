@@ -16,7 +16,16 @@ class UserInputDTO(BaseModel):
     competitor_company: str
     product: str
     objective: str
+    scene: Optional[str] = None
     optional: Optional[dict] = None
+
+    @field_validator("scene", mode="before")
+    @classmethod
+    def strip_scene(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped or None
 
 
 class ValidatedInputDTO(BaseModel):
@@ -61,6 +70,7 @@ class PlannerInput(BaseModel):
     product: str
     objective: str
     optional_context: Optional[str] = None
+    llm_timeout_seconds: Optional[float] = None
 
 
 class PlannerOutput(BaseModel):
@@ -130,6 +140,17 @@ class QualityReport(BaseModel):
     avg_confidence: float = 0.0
     fallback_used: bool = False
     missing_data_warnings: list[str] = Field(default_factory=list)
+    # Research timeout / raw fallback diagnostics (Step 34)
+    research_timeout: bool = False
+    evidence_fallback: Optional[str] = None  # e.g. "raw_search"
+    raw_items_converted: int = 0
+    # Step 42: age window diagnostics
+    filtered_expired_count: int = 0
+    undated_kept_count: int = 0
+    undated_dropped_count: int = 0
+    evidence_cutoff_date: str = ""
+    date_enrichment_attempted: int = 0
+    date_enrichment_succeeded: int = 0
 
 
 class ResearchInput(BaseModel):
@@ -137,6 +158,18 @@ class ResearchInput(BaseModel):
     our_company: str = ""
     competitor_company: str = ""
     product: str = ""
+    time_budget_seconds: float = 300.0
+    max_source_types: int = 3
+    max_results_per_source: int = 5
+    skip_evidence_evaluation: bool = False
+    max_evidence_items: Optional[int] = None
+    max_evaluated_items: Optional[int] = None
+    # Step 42
+    evidence_max_age_months: int = 48
+    max_undated_evidence_items: int = 5
+    enable_lightweight_date_enrichment: bool = True
+    date_enrichment_timeout_s: float = 2.5
+    date_enrichment_max_urls: int = 8
 
 
 class ResearchOutput(BaseModel):
@@ -195,10 +228,12 @@ class ProductInsight(BaseModel):
 class InsightInput(BaseModel):
     evidence_clusters: Optional[list[dict]] = None
     gap_analysis: Optional[dict] = None
+    flat_evidence_items: Optional[list] = None
     our_company: str
     competitor_company: str
     product: str
     objective: str = ""
+    llm_timeout_seconds: Optional[float] = None
 
 
 class InsightOutput(BaseModel):
@@ -216,6 +251,9 @@ class CompareInput(BaseModel):
     our_company: str = ""
     competitor_company: str = ""
     product: str = ""
+    llm_timeout_seconds: Optional[float] = None
+    compact: bool = True
+    research_incomplete: bool = False
 
 
 class CompareOutput(BaseModel):
@@ -301,6 +339,12 @@ class StrategyInput(BaseModel):
     insights: Optional[list[dict]] = None
     objective: str = ""
     product: str = ""
+    our_company: str = ""
+    competitor_company: str = ""
+    llm_timeout_seconds: Optional[float] = None
+    compact: bool = True
+    research_incomplete: bool = False
+    memory_notes_context: Optional[str] = None
 
 
 class StrategyOutput(BaseModel):
@@ -348,6 +392,11 @@ class ReportInput(BaseModel):
     product: str = ""
     our_company: str = ""
     competitor_company: str = ""
+    llm_timeout_seconds: Optional[float] = None
+    segment_timeout_seconds: Optional[float] = None
+    fast_mode: bool = False
+    compact_report: bool = False
+    memory_notes_context: Optional[str] = None
 
 
 class ReportOutput(BaseModel):
@@ -389,6 +438,7 @@ class ReviewInput(BaseModel):
     evidence_bundle: dict = Field(default_factory=dict)
     objective: str = ""
     template_version: str = "v1"
+    llm_timeout_seconds: Optional[float] = None
 
 
 class ReviewOutput(BaseModel):

@@ -77,6 +77,38 @@ class LLMInsightOutput(BaseModel):
     summary: str = ""
 
 
+def build_flat_insight_prompt(
+    our_company: str,
+    competitor_company: str,
+    product: str,
+    objective: str,
+    evidence_json: str,
+    gaps_json: str,
+) -> str:
+    return f"""## 分析场景
+- 我方: {our_company} / {product}
+- 竞品: {competitor_company} / {product}
+- 目标: {objective}
+
+## 扁平证据列表（无聚类时的轻量路径）
+
+{evidence_json}
+
+## 竞品差距分析（可能为空或超时 stub）
+
+{gaps_json}
+
+## 任务
+1. 从证据中提取 Fact（事实）
+2. 从多条事实中总结 Observation（趋势判断）
+3. 基于证据链提出 Hypothesis（产品推断）
+
+每个洞察必须包含 evidence_refs；cluster_refs 可为空数组。
+三种类型各至少生成 1 条（如果证据充分）。
+
+请输出 JSON。"""
+
+
 def build_insight_prompt(
     our_company: str,
     competitor_company: str,

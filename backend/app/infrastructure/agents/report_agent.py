@@ -8,11 +8,13 @@ Formats: Markdown (LLM), HTML + Word (export tools)
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import re
 import uuid
 import traceback
+import time
 from datetime import datetime
 from typing import Any
 
@@ -31,7 +33,12 @@ from app.config.settings import settings
 from app.infrastructure.agents.base import AgentContext, AgentResult, BaseAgent
 from app.infrastructure.agents.report_prompt import (
     SYSTEM_PROMPT,
+    SEGMENT_WORD_TARGETS,
     build_report_prompt,
+    build_report_prompt_segment,
+)
+from app.infrastructure.workflow.progress_hints import (
+    FAST_REPORT_SEGMENT_HINTS,
 )
 from app.infrastructure.llm.client import llm_client
 from app.infrastructure.tools.export_tool import (
@@ -57,8 +64,41 @@ SECTION_DEFS = [
     ("十三、实施路线图", "roadmap"),
 ]
 
+FAST_REPORT_SEGMENTS: dict[int, list[tuple[str, str]]] = {
+    1: SECTION_DEFS[0:4],
+    2: SECTION_DEFS[4:9],
+    3: SECTION_DEFS[9:13],
+}
+
+FAST_SEGMENT_PROGRESS: dict[int, float] = {
+    1: 70.0,
+    2: 75.0,
+    3: 80.0,
+}
+
+MERGE_BUFFER_S = 5.0
+DEFAULT_SEGMENT_LLM_TIMEOUT_S = 55.0
+FAST_GENERATION_NOTE = (
+    "快速模式：未执行对比/洞察/战略分析，对比章节基于证据整理。"
+)
+
 
 class ReportAgent(BaseAgent[ReportInput, ReportOutput]):
+
+    @staticmethod
+    def normalize_table_breaks(md: str) -> str:
+        """Replace HTML <br> variants with Chinese semicolon (safe for MD tables).
+
+        Markdown table rows break if a cell contains a raw newline; semicolon
+        keeps the pipe-row intact while remaining readable in SWOT cells.
+        """
+        if not md:
+            return md or ""
+        return re.sub(r"<br\s*/?\s*>", "；", md, flags=re.IGNORECASE)
+
+    @classmethod
+    def _prepare_markdown(cls, md: str) -> str:
+        return cls.normalize_table_breaks(md or "")
 
     @property
     def agent_name(self) -> str:
@@ -68,7 +108,72 @@ class ReportAgent(BaseAgent[ReportInput, ReportOutput]):
     def phase(self) -> Phase:
         return Phase.REPORTING
 
+    def build_timeout_fallback(self, input_data: ReportInput) -> AgentResult:
+        """Non-LLM fallback when the report node hits its hard timeout budget."""
+        if getattr(input_data, "fast_mode", False):
+            segments = [
+                self._build_segment_timeout_fallback(n, FAST_REPORT_SEGMENTS[n])
+                for n in (1, 2, 3)
+            ]
+            fallback_md = self._merge_segments(input_data, segments)
+            metadata_extra = {
+                "generation_mode": "fast_segmented",
+                "segment_timeouts": [1, 2, 3],
+                "report_timeout_fallback": True,
+            }
+        else:
+            evidence_json = self._serialize_evidence(input_data.evidence_bundle)
+            gap_json = self._serialize_gap(input_data.gap_analysis)
+            strategy_json = self._serialize_strategy(input_data.strategic_insights)
+            fallback_md = self._build_fallback_report(input_data, evidence_json, gap_json, strategy_json)
+            metadata_extra = {"report_timeout_fallback": True}
+
+        fallback_md = self._prepare_markdown(fallback_md)
+        if not getattr(input_data, "fast_mode", False):
+            metadata_extra["generation_mode"] = "full_single"
+
+        try:
+            html_content = self._markdown_to_html(fallback_md, input_data)
+        except Exception:
+            html_content = f"<html><body><h1>竞品分析报告</h1><pre>{fallback_md[:5000]}</pre></body></html>"
+        sections: list[ReportSectionDTO] = []
+        try:
+            sections = self._extract_sections(fallback_md)
+        except Exception:
+            pass
+        total_words = len(fallback_md.replace("\n", ""))
+        doc = ReportDocument(
+            formats=ReportFormatsDTO(markdown=fallback_md, html=html_content, docx_url=None),
+            sections=sections,
+            metadata={
+                "total_word_count": total_words,
+                "generated_at": datetime.utcnow().isoformat(),
+                "sources_count": 0,
+                "template_used": "v1",
+                "llm_prompt_tokens": 0,
+                "llm_completion_tokens": 0,
+                "fast_mode": bool(getattr(input_data, "fast_mode", False)),
+                "generation_note": FAST_GENERATION_NOTE if getattr(input_data, "fast_mode", False) else None,
+                **metadata_extra,
+            },
+        )
+        return AgentResult(
+            success=True,
+            output=ReportOutput(report_document=doc),
+            phase_record={
+                "phase": Phase.REPORTING.value,
+                "status": "completed",
+                "error": "report_timeout_fallback",
+                "llm_generated": False,
+            },
+        )
+
     async def arun(self, ctx: AgentContext, input_data: ReportInput) -> AgentResult:
+        if getattr(input_data, "fast_mode", False):
+            return await self._arun_segmented(ctx, input_data)
+        return await self._arun_single(ctx, input_data)
+
+    async def _arun_single(self, ctx: AgentContext, input_data: ReportInput) -> AgentResult:
         try:
             eb = input_data.evidence_bundle
             gap = input_data.gap_analysis
@@ -78,11 +183,13 @@ class ReportAgent(BaseAgent[ReportInput, ReportOutput]):
             evidence_json = self._serialize_evidence(eb)
             gap_json = self._serialize_gap(gap)
             strategy_json = self._serialize_strategy(insights)
+            strategy_is_stub = self._is_strategy_stub(insights)
+            gap_is_stub = self._is_gap_stub(gap)
 
             # ── Call LLM ──
-            result = await llm_client.generate(
-                system_prompt=SYSTEM_PROMPT,
-                user_prompt=build_report_prompt(
+            gen_kwargs: dict = {
+                "system_prompt": SYSTEM_PROMPT,
+                "user_prompt": build_report_prompt(
                     our_company=input_data.our_company if hasattr(input_data, 'our_company') else "我方",
                     competitor_company=input_data.competitor_company if hasattr(input_data, 'competitor_company') else "竞品",
                     product=input_data.product if hasattr(input_data, 'product') else "产品",
@@ -90,15 +197,23 @@ class ReportAgent(BaseAgent[ReportInput, ReportOutput]):
                     evidence_json=evidence_json,
                     gap_json=gap_json,
                     strategy_json=strategy_json,
+                    fast_mode=bool(getattr(input_data, "fast_mode", False)),
+                    compact_report=bool(getattr(input_data, "compact_report", False)),
+                    strategy_is_stub=strategy_is_stub,
+                    gap_is_stub=gap_is_stub,
+                    memory_notes_context=getattr(input_data, "memory_notes_context", None),
                 ),
-                response_model=None,
-                temperature=0.5,
-                timeout=1200.0,
-            )
+                "response_model": None,
+                "temperature": 0.5,
+            }
+            if input_data.llm_timeout_seconds is not None:
+                gen_kwargs["timeout"] = input_data.llm_timeout_seconds
+            result = await llm_client.generate(**gen_kwargs)
         except Exception as e:
             traceback.print_exc()
             # Generate fallback report from available data
             fallback_md = self._build_fallback_report(input_data, evidence_json, gap_json, strategy_json)
+            fallback_md = self._prepare_markdown(fallback_md)
             try:
                 html_content = self._markdown_to_html(fallback_md, input_data)
             except Exception:
@@ -125,6 +240,7 @@ class ReportAgent(BaseAgent[ReportInput, ReportOutput]):
         if not markdown_content or markdown_content.startswith("["):
             # LLM returned empty/invalid — use fallback
             fallback_md = self._build_fallback_report(input_data, evidence_json, gap_json, strategy_json)
+            fallback_md = self._prepare_markdown(fallback_md)
             try:
                 html_content = self._markdown_to_html(fallback_md, input_data)
             except Exception:
@@ -153,6 +269,7 @@ class ReportAgent(BaseAgent[ReportInput, ReportOutput]):
         if markdown_content.endswith("```"):
             markdown_content = markdown_content.rsplit("```", 1)[0]
         markdown_content = markdown_content.strip()
+        markdown_content = self._prepare_markdown(markdown_content)
 
         # ── Generate HTML (try/except — don't lose markdown on failure) ──
         try:
@@ -200,6 +317,13 @@ class ReportAgent(BaseAgent[ReportInput, ReportOutput]):
                 "template_used": input_data.template_version or "v1",
                 "llm_prompt_tokens": result.prompt_tokens,
                 "llm_completion_tokens": result.completion_tokens,
+                "fast_mode": bool(getattr(input_data, "fast_mode", False)),
+                "generation_mode": "full_single",
+                "generation_note": (
+                    "快速模式：未执行对比/洞察/战略分析，对比章节基于证据整理。"
+                    if getattr(input_data, "fast_mode", False)
+                    else None
+                ),
             },
         )
         output = ReportOutput(report_document=doc)
@@ -212,6 +336,252 @@ class ReportAgent(BaseAgent[ReportInput, ReportOutput]):
                 "entered_at": getattr(ctx, "phase_entered_at", None) or now,
                 "duration_ms": 0,  # overridden by aexecute wrapper
             },
+        )
+
+    async def _arun_segmented(self, ctx: AgentContext, input_data: ReportInput) -> AgentResult:
+        """Fast mode: generate 13 chapters in 3 sequential LLM segments."""
+        total_budget = float(input_data.llm_timeout_seconds or 180.0)
+        segment_cap = float(
+            getattr(input_data, "segment_timeout_seconds", None)
+            or DEFAULT_SEGMENT_LLM_TIMEOUT_S
+        )
+        start = time.monotonic()
+        segment_timeouts: list[int] = []
+        segment_markdowns: list[str] = []
+        previous_summary: str | None = None
+        total_prompt_tokens = 0
+        total_completion_tokens = 0
+
+        evidence_json = self._serialize_evidence(input_data.evidence_bundle)
+        gap_json = self._serialize_gap(input_data.gap_analysis)
+        strategy_json = self._serialize_strategy(input_data.strategic_insights)
+
+        for seg_num in (1, 2, 3):
+            self._touch_segment_progress(ctx.task_id, seg_num)
+            elapsed = time.monotonic() - start
+            remaining = total_budget - elapsed - MERGE_BUFFER_S
+            if remaining <= 8.0:
+                segment_markdowns.append(
+                    self._build_segment_timeout_fallback(seg_num, FAST_REPORT_SEGMENTS[seg_num])
+                )
+                segment_timeouts.append(seg_num)
+                continue
+
+            segment_budget = min(segment_cap, max(8.0, remaining - 8.0))
+            try:
+                md, pt, ct = await asyncio.wait_for(
+                    self._generate_segment(
+                        input_data,
+                        seg_num,
+                        evidence_json,
+                        gap_json,
+                        strategy_json,
+                        previous_summary,
+                        segment_budget,
+                    ),
+                    timeout=segment_budget,
+                )
+                total_prompt_tokens += pt
+                total_completion_tokens += ct
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                md = self._build_segment_timeout_fallback(seg_num, FAST_REPORT_SEGMENTS[seg_num])
+                segment_timeouts.append(seg_num)
+
+            segment_markdowns.append(md)
+            previous_summary = self._summarize_segment(md)
+
+        markdown_content = self._merge_segments(input_data, segment_markdowns)
+        return self._finalize_report_document(
+            ctx,
+            input_data,
+            markdown_content,
+            total_prompt_tokens,
+            total_completion_tokens,
+            extra_metadata={
+                "generation_mode": "fast_segmented",
+                "segment_timeouts": segment_timeouts,
+                "fast_mode": True,
+                "generation_note": FAST_GENERATION_NOTE,
+            },
+            phase_extra={"segmented": True, "segment_timeouts": segment_timeouts},
+        )
+
+    async def _generate_segment(
+        self,
+        input_data: ReportInput,
+        segment: int,
+        evidence_json: str,
+        gap_json: str,
+        strategy_json: str,
+        previous_summary: str | None,
+        llm_timeout: float,
+    ) -> tuple[str, int, int]:
+        user_prompt = build_report_prompt_segment(
+            segment=segment,  # type: ignore[arg-type]
+            our_company=input_data.our_company or "我方",
+            competitor_company=input_data.competitor_company or "竞品",
+            product=input_data.product or "产品",
+            objective=input_data.objective or "competitive_defense",
+            evidence_json=evidence_json,
+            gap_json=gap_json,
+            strategy_json=strategy_json,
+            fast_mode=True,
+            previous_segments_summary=previous_summary,
+            word_target=SEGMENT_WORD_TARGETS.get(segment, 800),  # type: ignore[arg-type]
+            memory_notes_context=getattr(input_data, "memory_notes_context", None),
+        )
+        llm_timeout = min(llm_timeout, DEFAULT_SEGMENT_LLM_TIMEOUT_S)
+        result = await llm_client.generate(
+            system_prompt=SYSTEM_PROMPT,
+            user_prompt=user_prompt,
+            response_model=None,
+            temperature=0.5,
+            timeout=llm_timeout,
+        )
+        content = self._strip_markdown_fences((result.content or "").strip())
+        if not content or content.startswith("["):
+            raise ValueError(f"segment_{segment}_empty_response")
+        return content, result.prompt_tokens, result.completion_tokens
+
+    @staticmethod
+    def _strip_markdown_fences(text: str) -> str:
+        if text.startswith("```"):
+            text = text.split("\n", 1)[-1]
+        if text.endswith("```"):
+            text = text.rsplit("```", 1)[0]
+        return text.strip()
+
+    @staticmethod
+    def _build_segment_timeout_fallback(
+        segment: int,
+        section_defs: list[tuple[str, str]],
+    ) -> str:
+        lines: list[str] = []
+        for title, _ in section_defs:
+            lines.append(f"## {title}")
+            lines.append("")
+            lines.append("> 本章生成超时，请稍后重试或切换完整模式。")
+            lines.append("")
+        return "\n".join(lines).strip()
+
+    @staticmethod
+    def _summarize_segment(markdown: str, max_chars: int = 400) -> str:
+        text = re.sub(r"\s+", " ", markdown).strip()
+        if len(text) <= max_chars:
+            return text
+        return text[: max_chars - 3] + "..."
+
+    @classmethod
+    def _merge_segments(cls, input_data: ReportInput, segments: list[str]) -> str:
+        now = datetime.utcnow().strftime("%Y-%m-%d")
+        header = (
+            f"# 互联网产品竞品分析报告\n\n"
+            f"> **我方**：{input_data.our_company or '我方'} | "
+            f"**竞品**：{input_data.competitor_company or '竞品'} | "
+            f"**产品**：{input_data.product or '产品'} | **日期**：{now}\n"
+        )
+        body_parts = [s.strip() for s in segments if s and s.strip()]
+        body = "\n\n---\n\n".join(body_parts)
+        footer = (
+            "\n\n---\n\n## 附录\n\n"
+            "**生成说明**：*本报告由 AI 竞品分析助手自动生成。"
+            f"{FAST_GENERATION_NOTE} 本报告采用分段生成（fast_segmented）。*"
+        )
+        return f"{header}\n---\n\n{body}{footer}"
+
+    @staticmethod
+    def _touch_segment_progress(task_id: str, segment: int) -> None:
+        if not task_id:
+            return
+        try:
+            from app.infrastructure.persistence import task_report_runtime
+
+            progress = FAST_SEGMENT_PROGRESS.get(segment, 70.0)
+            task_report_runtime.touch_task_progress(
+                task_id,
+                current_phase="reporting",
+                progress=progress,
+                current_agent="report",
+                stage_hint=FAST_REPORT_SEGMENT_HINTS.get(segment, "正在撰写报告…"),
+            )
+        except Exception:
+            pass
+
+    def _finalize_report_document(
+        self,
+        ctx: AgentContext,
+        input_data: ReportInput,
+        markdown_content: str,
+        prompt_tokens: int,
+        completion_tokens: int,
+        *,
+        extra_metadata: dict[str, Any] | None = None,
+        phase_extra: dict[str, Any] | None = None,
+    ) -> AgentResult:
+        markdown_content = self._prepare_markdown(markdown_content)
+        eb = input_data.evidence_bundle
+        try:
+            html_content = self._markdown_to_html(markdown_content, input_data)
+        except Exception as html_err:
+            traceback.print_exc()
+            html_content = (
+                f"<html><body><h1>竞品分析报告</h1>"
+                f"<p>HTML 生成失败: {html_err}. 请查看 Markdown 版本。</p>"
+                f"<pre>{markdown_content[:5000]}</pre>"
+                f"</body></html>"
+            )
+
+        word_path = ""
+        try:
+            if "docx" in input_data.output_formats:
+                word_path = self._save_word(markdown_content, input_data)
+        except Exception:
+            traceback.print_exc()
+            word_path = ""
+
+        try:
+            sections = self._extract_sections(markdown_content)
+        except Exception:
+            sections = []
+
+        total_words = len(markdown_content.replace("\n", ""))
+        now = datetime.utcnow().isoformat()
+        metadata: dict[str, Any] = {
+            "total_word_count": total_words,
+            "generated_at": now,
+            "sources_count": len(
+                eb.get("sources_used", []) if isinstance(eb, dict) else getattr(eb, "sources_used", [])
+            ),
+            "template_used": input_data.template_version or "v1",
+            "llm_prompt_tokens": prompt_tokens,
+            "llm_completion_tokens": completion_tokens,
+        }
+        if extra_metadata:
+            metadata.update(extra_metadata)
+
+        doc = ReportDocument(
+            formats=ReportFormatsDTO(
+                markdown=markdown_content,
+                html=html_content,
+                docx_url=word_path if word_path and os.path.exists(word_path) else None,
+            ),
+            sections=sections,
+            metadata=metadata,
+        )
+        phase_record = {
+            "phase": self.agent_name,
+            "entered_at": getattr(ctx, "phase_entered_at", None) or now,
+            "duration_ms": 0,
+        }
+        if phase_extra:
+            phase_record.update(phase_extra)
+
+        return AgentResult(
+            success=True,
+            output=ReportOutput(report_document=doc),
+            phase_record=phase_record,
         )
 
     # ── Serialization helpers ──
@@ -328,7 +698,7 @@ class ReportAgent(BaseAgent[ReportInput, ReportOutput]):
                 return item.get(field, default)
             return getattr(item, field, default)
 
-        return json.dumps({
+        payload = {
             "positioning": {
                 "our_positioning": cls._safe_get(pos, "our_positioning", ""),
                 "competitor_positioning": cls._safe_get(pos, "competitor_positioning", ""),
@@ -357,7 +727,31 @@ class ReportAgent(BaseAgent[ReportInput, ReportOutput]):
                  "evidence_refs": _safe_item(d, "evidence_refs", [])}
                 for d in (disadvs if isinstance(disadvs, list) else [])[:3]
             ],
-        }, ensure_ascii=False, indent=2)
+        }
+        if isinstance(gap, dict):
+            for key in (
+                "compare_timeout",
+                "compare_fallback",
+                "generation_note",
+                "compare_partial",
+            ):
+                if key in gap:
+                    payload[key] = gap[key]
+        return json.dumps(payload, ensure_ascii=False, indent=2)
+
+    @classmethod
+    def _is_strategy_stub(cls, insights) -> bool:
+        if not isinstance(insights, dict):
+            return False
+        return insights.get("swot_source") in ("evidence_stub", "partial_json") or insights.get(
+            "strategy_fallback"
+        ) in ("evidence_stub", "partial_json")
+
+    @classmethod
+    def _is_gap_stub(cls, gap) -> bool:
+        if not isinstance(gap, dict):
+            return False
+        return gap.get("compare_fallback") in ("evidence_stub", "partial_json")
 
     @classmethod
     def _serialize_strategy(cls, insights) -> str:
@@ -365,7 +759,9 @@ class ReportAgent(BaseAgent[ReportInput, ReportOutput]):
         if insights is None:
             insights = {}
         if isinstance(insights, dict):
-            swot = insights.get("swot") or insights
+            swot = insights.get("swot") if insights.get("swot") is not None else {}
+            if not isinstance(swot, dict) and not hasattr(swot, "strengths"):
+                swot = {}
             opps = insights.get("opportunities") or []
             risks = insights.get("risks") or []
             recs = insights.get("recommendations") or []
@@ -379,7 +775,7 @@ class ReportAgent(BaseAgent[ReportInput, ReportOutput]):
 
         def _swot_list(items):
             result = []
-            for i in items[:5]:
+            for i in (items or [])[:5]:
                 if isinstance(i, dict):
                     result.append({"conclusion": i.get("item", ""), "evidence_refs": i.get("evidence_refs", []),
                                    "confidence": i.get("confidence", "medium")})
@@ -443,12 +839,23 @@ class ReportAgent(BaseAgent[ReportInput, ReportOutput]):
                                    "evidence_refs": getattr(r, "evidence_refs", [])})
             return result
 
-        return json.dumps({
+        if isinstance(swot, dict):
+            strengths = _swot_list(swot.get("strengths", []))
+            weaknesses = _swot_list(swot.get("weaknesses", []))
+            opportunities_swot = _swot_list(swot.get("opportunities", []))
+            threats = _swot_list(swot.get("threats", []))
+        else:
+            strengths = _swot_list(getattr(swot, "strengths", []))
+            weaknesses = _swot_list(getattr(swot, "weaknesses", []))
+            opportunities_swot = _swot_list(getattr(swot, "opportunities", []))
+            threats = _swot_list(getattr(swot, "threats", []))
+
+        payload = {
             "swot": {
-                "strengths": _swot_list(getattr(swot, "strengths", []) if hasattr(swot, "strengths") else []),
-                "weaknesses": _swot_list(getattr(swot, "weaknesses", []) if hasattr(swot, "weaknesses") else []),
-                "opportunities": _swot_list(getattr(swot, "opportunities", []) if hasattr(swot, "opportunities") else []),
-                "threats": _swot_list(getattr(swot, "threats", []) if hasattr(swot, "threats") else []),
+                "strengths": strengths,
+                "weaknesses": weaknesses,
+                "opportunities": opportunities_swot,
+                "threats": threats,
             },
             "opportunities": _opp_list(opps),
             "risks": _risk_list(risks),
@@ -457,7 +864,18 @@ class ReportAgent(BaseAgent[ReportInput, ReportOutput]):
                 {"phase": (p.get("phase","") if hasattr(p,"get") else getattr(p,"phase","")), "initiatives": (p.get("initiatives",[]) if hasattr(p,"get") else getattr(p,"initiatives",[]))}
                 for p in (roadmap.get("phases", []) if isinstance(roadmap, dict) else [])[:3]
             ],
-        }, ensure_ascii=False, indent=2)
+        }
+        if isinstance(insights, dict):
+            for key in (
+                "strategy_timeout",
+                "strategy_fallback",
+                "swot_source",
+                "generation_note",
+                "strategy_partial",
+            ):
+                if key in insights:
+                    payload[key] = insights[key]
+        return json.dumps(payload, ensure_ascii=False, indent=2)
 
 
     # ── Fallback report without LLM ──

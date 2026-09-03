@@ -37,6 +37,15 @@ class ReportSectionDTO(BaseModel):
     word_count: int
 
 
+class ReportGenerationMetadataDTO(BaseModel):
+    """Report generation metadata exposed via GET /api/reports/{id}."""
+
+    generation_mode: Optional[str] = None
+    generation_note: Optional[str] = None
+    segment_timeouts: list[int] = Field(default_factory=list)
+    analysis_mode: Optional[str] = None
+
+
 class ReportDetailResponse(BaseModel):
     id: UUID
     task_id: UUID
@@ -54,6 +63,7 @@ class ReportDetailResponse(BaseModel):
     status: Optional[str] = None
     error: Optional[str] = None
     diagnosis: Optional[dict] = None
+    metadata: Optional[ReportGenerationMetadataDTO] = None
     created_at: datetime
 
 

@@ -121,6 +121,8 @@ def push_event(
     }
     if extra:
         event["data"] = extra
+        if extra.get("stage_hint"):
+            event["stage_hint"] = extra["stage_hint"]
 
     try:
         queue.put_nowait(event)

@@ -11,6 +11,7 @@ Supports:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 from dataclasses import dataclass, field
@@ -307,13 +308,13 @@ class LLMClient:
                     _RETRY_BASE_DELAY * (2 ** attempt),
                     _RETRY_MAX_DELAY,
                 )
-                time.sleep(wait)
+                await asyncio.sleep(wait)
                 continue
             except APITimeoutError as exc:
                 last_error = exc
                 if attempt < _RETRY_MAX - 1:
                     wait = _RETRY_BASE_DELAY * (2 ** attempt)
-                    time.sleep(wait)
+                    await asyncio.sleep(wait)
                     continue
                 return LLMResponse(
                     content=f"[TIMEOUT] Request timed out after {kwargs['timeout']}s",
@@ -339,7 +340,7 @@ class LLMClient:
                 last_error = exc
                 if attempt < _RETRY_MAX - 1:
                     wait = _RETRY_BASE_DELAY * (2 ** attempt)
-                    time.sleep(wait)
+                    await asyncio.sleep(wait)
                     continue
                 return LLMResponse(
                     content=f"[API_ERROR] {exc}",

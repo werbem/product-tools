@@ -121,6 +121,10 @@ class WorkflowState(TypedDict, total=False):
     total_duration_ms: int
     llm_token_usage: TokenUsage
     version: str
+    workflow_started_at: Optional[float]
+    workflow_budget_meta: Optional[dict[str, Any]]
+    stage_hint: Optional[str]
+    total_elapsed_s: Optional[float]
 
 
 def create_initial_state(user_input: dict[str, Any]) -> WorkflowState:
@@ -154,4 +158,6 @@ def create_initial_state(user_input: dict[str, Any]) -> WorkflowState:
         total_duration_ms=0,
         llm_token_usage=TokenUsage(total_prompt_tokens=0, total_completion_tokens=0),
         version="v1",
+        workflow_started_at=None,
+        workflow_budget_meta={},
     )

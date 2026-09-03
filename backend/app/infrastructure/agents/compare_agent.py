@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import re
 
 from app.application.dto.agent_dto import (
     CompareInput, CompareOutput, FeatureItem, GapAnalysis, GapItem,
@@ -11,7 +10,7 @@ from app.application.dto.agent_dto import (
 from app.config.constants import Phase
 from app.infrastructure.agents.base import AgentContext, AgentResult, BaseAgent
 from app.infrastructure.agents.compare_prompt import (
-    SYSTEM_PROMPT, build_compare_prompt, build_cluster_compare_prompt, _normalize_llm_output,
+    SYSTEM_PROMPT, build_compare_prompt, build_cluster_compare_prompt,
 )
 from app.infrastructure.llm.client import llm_client
 
@@ -22,7 +21,8 @@ def _dget(obj, key, default=None):
     return getattr(obj, key, default)
 
 
-# Temporal priority for evidence sorting (recent first, historical last).
+# Compare input cap — aligned with full mode max_evidence_items budget (15 → top 12 for LLM)
+COMPARE_EVIDENCE_INPUT_CAP = 12
 _TEMPORAL_PRIORITY: dict[str, float] = {
     "recent": 0.0,
     "aging": 1.0,
@@ -71,6 +71,10 @@ def _aggregate_temporal_levels(levels: list[str]) -> str:
 
 class CompareAgent(BaseAgent[CompareInput, CompareOutput]):
 
+    def __init__(self) -> None:
+        self._partial_input: CompareInput | None = None
+        self._partial_raw_text: str = ""
+
     @property
     def agent_name(self) -> str:
         return "compare"
@@ -78,6 +82,79 @@ class CompareAgent(BaseAgent[CompareInput, CompareOutput]):
     @property
     def phase(self) -> Phase:
         return Phase.COMPARING
+
+    def build_partial_result(self) -> AgentResult:
+        """Timeout fallback: parse partial LLM JSON, else evidence stub."""
+        from app.infrastructure.agents.timeout_stubs import (
+            build_compare_stub_from_evidence,
+            try_parse_compare_llm_json,
+        )
+
+        input_data = self._partial_input
+        our = getattr(input_data, "our_company", "") if input_data else ""
+        comp = getattr(input_data, "competitor_company", "") if input_data else ""
+        product = getattr(input_data, "product", "") if input_data else ""
+        eb = getattr(input_data, "evidence_bundle", {}) if input_data else {}
+        clusters = list(getattr(input_data, "evidence_clusters", None) or []) if input_data else []
+        raw_items = _dget(eb, "evidence_items", []) or []
+
+        parsed = try_parse_compare_llm_json(self._partial_raw_text)
+        if parsed and (parsed.differences or parsed.capability_gaps):
+            evidence_map, cluster_map = self._build_temporal_maps(raw_items, clusters)
+            gap = self._build_gap_analysis(parsed, raw_items, cluster_map, evidence_map)
+            gap_dict = gap.model_dump()
+            gap_dict.update({
+                "compare_timeout": True,
+                "compare_partial": True,
+                "compare_fallback": "partial_json",
+                "generation_note": "对比结果来自超时前的部分 LLM 输出",
+            })
+            # Store enriched dict on a plain CompareOutput via monkey-patch field
+            out = CompareOutput(
+                gap_analysis=gap,
+                dimensions_analyzed=list(parsed.dimensions_analyzed or []),
+                evidence_references_count=len(gap.evidence_references or []),
+            )
+            return AgentResult(
+                success=True,
+                output=out,
+                phase_record={
+                    "phase": Phase.COMPARING.value,
+                    "status": "completed",
+                    "error": "compare_partial_on_timeout",
+                    "compare_timeout": True,
+                    "compare_partial": True,
+                    "compare_fallback": "partial_json",
+                    "gap_dict": gap_dict,
+                },
+            )
+
+        gap_dict = build_compare_stub_from_evidence(
+            eb, our_company=our, competitor_company=comp, product=product,
+        )
+        # Reconstruct GapAnalysis without meta keys for typed output
+        meta_keys = {
+            "compare_timeout", "compare_fallback", "generation_note",
+            "stub_evidence_count", "compare_partial",
+        }
+        gap_body = {k: v for k, v in gap_dict.items() if k not in meta_keys}
+        gap = GapAnalysis(**{k: gap_body[k] for k in GapAnalysis.model_fields if k in gap_body})
+        out = CompareOutput(
+            gap_analysis=gap,
+            evidence_references_count=len(gap_dict.get("evidence_references") or []),
+        )
+        return AgentResult(
+            success=True,
+            output=out,
+            phase_record={
+                "phase": Phase.COMPARING.value,
+                "status": "completed",
+                "error": "compare_stub_on_timeout",
+                "compare_timeout": True,
+                "compare_fallback": "evidence_stub",
+                "gap_dict": gap_dict,
+            },
+        )
 
     @staticmethod
     def _build_temporal_maps(
@@ -124,88 +201,137 @@ class CompareAgent(BaseAgent[CompareInput, CompareOutput]):
         return "unknown"
 
     async def arun(self, ctx: AgentContext, input_data: CompareInput) -> AgentResult:
-        # ── Dict-safe extraction of evidence items ──
+        import time
+
+        from app.infrastructure.agents.agent_io_compact import (
+            COMPACT_EVIDENCE_CAP,
+            COMPACT_SNIPPET_CHARS,
+            compress_evidence_items,
+        )
+        from app.infrastructure.agents.compare_prompt import (
+            COMPACT_SYSTEM_PROMPT,
+            build_compare_prompt_compact,
+            build_compare_repair_prompt,
+        )
+        from app.infrastructure.agents.timeout_stubs import try_parse_compare_llm_json
+        from app.infrastructure.workflow.workflow_budget import split_primary_repair_timeouts
+
+        self._partial_input = input_data
+        self._partial_raw_text = ""
+        t0 = time.monotonic()
+
         eb = input_data.evidence_bundle
-        raw_items = _dget(eb, "evidence_items", [])
-        evidence_items = sorted(raw_items, key=_evidence_sort_key)[:12]
+        raw_items = _dget(eb, "evidence_items", []) or []
+        clusters = list(input_data.evidence_clusters or [])
+        compact = bool(getattr(input_data, "compact", True))
+        research_incomplete = bool(getattr(input_data, "research_incomplete", False))
 
-        clusters = input_data.evidence_clusters or []
-        evidence_map, cluster_map = self._build_temporal_maps(raw_items, clusters)
-
-        if not evidence_items and not clusters:
+        if not raw_items and not clusters:
             return AgentResult(success=True, output=CompareOutput(
                 gap_analysis=GapAnalysis(),
                 evidence_references_count=0,
             ), phase_record={"phase": Phase.COMPARING.value, "status": "no_evidence"})
 
-        evidence_json = json.dumps([
-            {"id": _dget(e, "id", ""), "title": _dget(e, "title", ""), "source": _dget(e, "source", ""), "url": _dget(e, "url", ""),
-             "date": _dget(e, "date", ""), "dimension": _dget(e, "category", ""), "summary": (_dget(e, "content", "") or "")[:300],
-             "confidence": _dget(e, "confidence", "estimated"),
-             "temporal_level": _get_temporal_level(e) or "unknown"}
-            for e in evidence_items
-        ], ensure_ascii=False, indent=2)
-
-        clusters_json = json.dumps(clusters, ensure_ascii=False, indent=2)
-
-        # Use cluster-aware prompt when clusters available, else legacy
-        if clusters:
-            user_prompt = build_cluster_compare_prompt(
+        if compact:
+            packed = compress_evidence_items(
+                raw_items, cap=COMPACT_EVIDENCE_CAP, snippet_chars=COMPACT_SNIPPET_CHARS,
+            )
+            evidence_json = json.dumps(packed, ensure_ascii=False)
+            evidence_items = packed
+            # Flat evidence path — skip large cluster payload for speed
+            user_prompt = build_compare_prompt_compact(
                 our_company=input_data.our_company,
                 competitor_company=input_data.competitor_company,
                 product=input_data.product,
-                clusters_json=clusters_json,
                 evidence_json=evidence_json,
                 analysis_scope=input_data.analysis_scope,
+                research_incomplete=research_incomplete,
             )
+            system_prompt = COMPACT_SYSTEM_PROMPT
         else:
-            user_prompt = build_compare_prompt(
-                our_company=input_data.our_company,
-                competitor_company=input_data.competitor_company,
-                product=input_data.product,
-                evidence_json=evidence_json,
-                analysis_scope=input_data.analysis_scope,
-            )
+            evidence_items = sorted(raw_items, key=_evidence_sort_key)[:COMPARE_EVIDENCE_INPUT_CAP]
+            evidence_json = json.dumps([
+                {
+                    "id": _dget(e, "id", ""), "title": _dget(e, "title", ""),
+                    "source": _dget(e, "source", ""), "url": _dget(e, "url", ""),
+                    "date": _dget(e, "date", ""), "dimension": _dget(e, "category", ""),
+                    "summary": (_dget(e, "content", "") or "")[:300],
+                    "confidence": _dget(e, "confidence", "estimated"),
+                    "temporal_level": _get_temporal_level(e) or "unknown",
+                }
+                for e in evidence_items
+            ], ensure_ascii=False, indent=2)
+            clusters_json = json.dumps(clusters, ensure_ascii=False, indent=2)
+            if clusters:
+                user_prompt = build_cluster_compare_prompt(
+                    our_company=input_data.our_company,
+                    competitor_company=input_data.competitor_company,
+                    product=input_data.product,
+                    clusters_json=clusters_json,
+                    evidence_json=evidence_json,
+                    analysis_scope=input_data.analysis_scope,
+                )
+            else:
+                user_prompt = build_compare_prompt(
+                    our_company=input_data.our_company,
+                    competitor_company=input_data.competitor_company,
+                    product=input_data.product,
+                    evidence_json=evidence_json,
+                    analysis_scope=input_data.analysis_scope,
+                )
+            system_prompt = SYSTEM_PROMPT
 
+        evidence_map, cluster_map = self._build_temporal_maps(raw_items, clusters)
+        node_timeout = float(input_data.llm_timeout_seconds or 90.0)
+        primary_t, repair_t = split_primary_repair_timeouts(node_timeout)
+
+        parsed = None
         try:
             result = await llm_client.generate(
-                system_prompt=SYSTEM_PROMPT,
+                system_prompt=system_prompt,
                 user_prompt=user_prompt,
                 response_model=None,
-                temperature=0.4,
+                temperature=0.3 if compact else 0.4,
+                timeout=primary_t if primary_t > 0 else None,
             )
+            raw_text = (result.content or "").strip()
+            self._partial_raw_text = raw_text
+            parsed = try_parse_compare_llm_json(raw_text)
         except Exception:
-            return AgentResult(success=False, output=CompareOutput(
-                gap_analysis=GapAnalysis(), evidence_references_count=0,
-            ), phase_record={"phase": Phase.COMPARING.value, "status": "llm_error"})
+            parsed = None
 
-        # Parse JSON directly from LLM response
-        parsed = None
-        raw_text = (result.content or "").strip()
-        if raw_text:
-            # Strip markdown fences
-            if raw_text.startswith("```"):
-                raw_text = raw_text.split("\n", 1)[-1].rsplit("```", 1)[0]
+        if (not parsed or not (parsed.differences or parsed.capability_gaps)) and repair_t >= 8.0:
+            broken = self._partial_raw_text or ""
             try:
-                m = re.search(r"\{.*\}", raw_text, re.DOTALL)
-                if m:
-                    data = json.loads(m.group())
-                    if isinstance(data, dict) and data.get("differences"):
-                        parsed = _normalize_llm_output(data)
-            except (json.JSONDecodeError, Exception):
-                parsed = None
+                repair = await llm_client.generate(
+                    system_prompt=COMPACT_SYSTEM_PROMPT if compact else SYSTEM_PROMPT,
+                    user_prompt=build_compare_repair_prompt(broken or user_prompt[-1500:]),
+                    response_model=None,
+                    temperature=0.1,
+                    timeout=repair_t,
+                )
+                raw_text = (repair.content or "").strip()
+                if raw_text:
+                    self._partial_raw_text = raw_text
+                    parsed = try_parse_compare_llm_json(raw_text)
+            except Exception:
+                pass
 
-        if not parsed or not parsed.differences:
+        elapsed = round(time.monotonic() - t0, 2)
+
+        if not parsed or not (parsed.differences or parsed.capability_gaps):
             return AgentResult(success=True, output=CompareOutput(
                 gap_analysis=GapAnalysis(),
                 evidence_references_count=len(evidence_items),
             ), phase_record={
                 "phase": Phase.COMPARING.value, "status": "completed",
-                "llm_generated": False, "note": "LLM returned empty results",
+                "llm_generated": False,
+                "compare_mode": "parse_fail",
+                "compare_elapsed_s": elapsed,
+                "note": "LLM returned empty/unparseable results",
             })
 
         gap = self._build_gap_analysis(parsed, evidence_items, cluster_map, evidence_map)
-
         all_refs = set()
         for d in parsed.differences:
             all_refs.update(d.evidence_refs)
@@ -220,6 +346,8 @@ class CompareAgent(BaseAgent[CompareInput, CompareOutput]):
         ), phase_record={
             "phase": Phase.COMPARING.value, "status": "completed",
             "llm_generated": True,
+            "compare_mode": "compact_agent" if compact else "full_agent",
+            "compare_elapsed_s": elapsed,
             "differences_count": len(parsed.differences),
             "capability_gaps_count": len(parsed.capability_gaps),
         })

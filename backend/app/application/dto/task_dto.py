@@ -24,6 +24,8 @@ class TaskProgressResponse(BaseModel):
     progress: float = Field(..., ge=0.0, le=100.0)
     phase_history: list[PhaseRecordDTO] = Field(default_factory=list)
     estimated_remaining_seconds: Optional[int] = None
+    stage_hint: Optional[str] = None
+    total_elapsed_s: Optional[float] = None
     error_info: Optional[str] = None
     diagnosis: Optional[dict] = None
     created_at: datetime

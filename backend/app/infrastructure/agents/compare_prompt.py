@@ -69,6 +69,58 @@ dimensions_skipped 格式：[{{"dimension":"ux","reason":"无证据"}}]
 请严格按以上格式输出 JSON。"""
 
 
+COMPACT_SYSTEM_PROMPT = """你是竞品差距分析师。输出严格 JSON，短句，禁止长文。
+每个结论必须有 evidence_refs。differences/capability_gaps 为对象数组。
+字段：dimension,title,our_status,competitor_status,evidence_refs,user_impact,business_impact,confidence
+每条 title/status/impact ≤40 字。
+主证据应视为近 4 年内材料。
+时效约束：若证据 date_semantic=event_date、temporal_level 为 historical/unknown，或 date 缺失，
+不得写成「近期/最新」；最多作背景，应写「据公开资料（日期不详/历史事件）」。"""
+
+
+def build_compare_prompt_compact(
+    our_company,
+    competitor_company,
+    product,
+    evidence_json,
+    analysis_scope,
+    *,
+    research_incomplete: bool = False,
+) -> str:
+    scope_str = ", ".join(analysis_scope) if analysis_scope else "全维度"
+    note = ""
+    if research_incomplete:
+        note = (
+            "\n> 注意：上游检索可能超时，证据可能不完整，"
+            "但仍须基于现有证据输出结构化对比，勿留空。\n"
+        )
+    return f"""## 分析对象
+- 我方: {our_company} / {product}
+- 竞品: {competitor_company} / {product}
+- 分析范围: {scope_str}
+{note}
+## 证据（已截断）
+{evidence_json}
+
+## 任务（compact）
+输出 JSON，字段上限：
+- differences: ≤6
+- capability_gaps: ≤5
+- advantages / disadvantages: ≤5 条短句
+- overall_summary: ≤40 字
+禁止长篇叙述；每条 ≤40 字。仅 JSON。
+主证据视为近 4 年内材料；event_date/historical/unknown/无日期禁止写「近期/最新」。"""
+
+
+def build_compare_repair_prompt(broken_text: str) -> str:
+    excerpt = (broken_text or "")[:2500]
+    return (
+        "下面是需要修复的 Compare 输出。请只输出合法 JSON 对象，"
+        "包含 differences 与/或 capability_gaps 数组，不要 markdown。\n\n"
+        f"```\n{excerpt}\n```"
+    )
+
+
 def build_cluster_compare_prompt(our_company, competitor_company, product, clusters_json, evidence_json, analysis_scope):
     scope_str = ", ".join(analysis_scope) if analysis_scope else "全维度"
     return f'''## 分析对象

@@ -1,3 +1,5 @@
+export * from "./copilot";
+
 export interface AnalysisInput {
   our_company: string;
   competitor_company: string;
@@ -32,6 +34,8 @@ export interface TaskProgressResponse {
   status: string;
   current_agent: string;
   progress: number;
+  stage_hint?: string | null;
+  total_elapsed_s?: number | null;
   phase_history: PhaseRecord[];
   error_info?: string | null;
   diagnosis?: DiagnosisInfo | null;
@@ -84,7 +88,13 @@ export interface ReportDetailResponse {
     source_type?: string;
     date?: string;
     domain?: string;
-  }[]
+  }[];
+  metadata?: {
+    generation_mode?: string | null;
+    generation_note?: string | null;
+    segment_timeouts?: number[];
+    analysis_mode?: "fast" | "full" | null;
+  } | null;
 }
 
 export interface HistoryEntry {
@@ -112,6 +122,8 @@ export const PHASE_LABELS: Record<string, string> = {
   validated: "输入验证",
   planned: "制定计划",
   researched: "收集证据",
+  collection_processed: "整理摘要",
+  collection_completed: "收集完成",
   compared: "竞品对比",
   strategized: "战略分析",
   reported: "生成报告",
@@ -121,6 +133,38 @@ export const PHASE_LABELS: Record<string, string> = {
   review_failed: "审查未通过",
   need_more_research: "证据不足",
 };
+
+export interface CollectionEvidenceItem {
+  id: string;
+  title: string;
+  source: string;
+  source_type: string;
+  url: string;
+  date: string;
+  content: string;
+  confidence: string;
+  category: string;
+}
+
+export interface CollectionDetailResponse {
+  task_id: string;
+  workflow_kind: string;
+  status: string;
+  our_company: string;
+  product: string;
+  objective: string;
+  topic?: string;
+  topic_source?: string;
+  objective_code?: string;
+  markdown: string | null;
+  evidence_items: CollectionEvidenceItem[];
+  evidence_count: number;
+  sources_attempted: number;
+  sources_succeeded: number;
+  warnings: string[];
+  created_at: string;
+  error?: string | null;
+}
 
 export const CUSTOM_OBJECTIVE = "__custom__";
 

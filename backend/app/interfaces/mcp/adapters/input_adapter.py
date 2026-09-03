@@ -39,6 +39,8 @@ class CollectInputAdapter:
                     "dimensions": input_data.dimensions,
                     "source_types": input_data.source_types,
                     "max_evidence": input_data.max_evidence,
+                    "workflow_kind": "intelligence_collection",
+                    "skip_evidence_evaluation": True,
                 },
             }
         )

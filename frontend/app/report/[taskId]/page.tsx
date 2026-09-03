@@ -55,8 +55,8 @@ export default function ReportPage({
         <h2 className="text-xl font-semibold">加载失败</h2>
         <p className="text-muted-foreground">{error}</p>
         <div className="flex justify-center gap-3">
-          <Button variant="outline" onClick={() => router.push("/")}>
-            返回首页
+          <Button variant="outline" onClick={() => router.push("/workspace")}>
+            返回工作台
           </Button>
           <Button onClick={fetchReport}>
             重试
@@ -72,8 +72,8 @@ export default function ReportPage({
         <div className="text-4xl">📄</div>
         <h2 className="text-xl font-semibold">报告不存在</h2>
         <p className="text-muted-foreground">该分析任务不存在或报告尚未生成</p>
-        <Button variant="outline" onClick={() => router.push("/")}>
-          返回首页
+        <Button variant="outline" onClick={() => router.push("/workspace")}>
+          返回工作台
         </Button>
       </div>
     );
@@ -84,11 +84,11 @@ export default function ReportPage({
       {/* Navigation bar */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-2">
-          <Button variant="ghost" size="sm" onClick={() => router.push("/")}>
+          <Button variant="ghost" size="sm" onClick={() => router.push("/workspace")}>
             <svg className="h-4 w-4 mr-1" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M19 12H5" /><polyline points="12 19 5 12 12 5" />
             </svg>
-            返回首页
+            返回工作台
           </Button>
         </div>
       </div>

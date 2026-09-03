@@ -33,14 +33,20 @@ async def collect_validate_node(state: WorkflowState) -> dict[str, Any]:
         current_phase="validating",
         retry_count=state.get("retry_counts", {}).get("gate", 0),
     )
-    raw = state.get("user_input", {})
-    user_input = UserInputDTO(**{
-        "our_company": raw.get("our_company", ""),
-        "competitor_company": raw.get("competitor_company", ""),
-        "product": raw.get("product", ""),
-        "objective": raw.get("objective", "product_improvement"),
-        "optional": raw.get("optional"),
-    })
+    raw = state.get("user_input", {}) or {}
+    optional = raw.get("optional") or {}
+    if not isinstance(optional, dict):
+        optional = {}
+    # Align with deep analysis: pass scene so Gate can do effective_objective = scene or objective
+    scene = (raw.get("scene") or "").strip() or None
+    user_input = UserInputDTO(
+        our_company=raw.get("our_company", ""),
+        competitor_company=raw.get("competitor_company", ""),
+        product=raw.get("product", ""),
+        objective=raw.get("objective", "product_improvement"),
+        scene=scene,
+        optional=optional or None,
+    )
     result = await GateAgent().aexecute(ctx, GateInput(user_input=user_input))
 
     if not result.success:

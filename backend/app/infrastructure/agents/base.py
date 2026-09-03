@@ -1,6 +1,7 @@
 """Abstract base class for all Agents."""
 
 from __future__ import annotations
+import asyncio
 import json, re
 
 from abc import ABC, abstractmethod
@@ -229,6 +230,8 @@ class BaseAgent(ABC, Generic[InputT, OutputT]):
             # ---
 
             return result
+        except asyncio.CancelledError:
+            raise
         except Exception as exc:
             elapsed = int((datetime.now() - start).total_seconds() * 1000)
             return AgentResult(

@@ -13,7 +13,11 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config.settings import settings
 from app.infrastructure.persistence.database import db_manager
+from app.interfaces.api.routes.artifacts import router as artifacts_router
+from app.interfaces.api.routes.conversations import router as conversations_router
 from app.interfaces.api.routes.health import router as health_router
+from app.interfaces.api.routes.intent import router as intent_router
+from app.interfaces.api.routes.projects import router as projects_router
 from app.interfaces.api.routes.reports import router as reports_router
 from app.interfaces.api.routes.tasks import router as tasks_router
 from app.interfaces.api.routes.traces import router as traces_router
@@ -78,6 +82,10 @@ def create_app() -> FastAPI:
 
     # Routes
     app.include_router(health_router, prefix="/api")
+    app.include_router(intent_router, prefix="/api")
+    app.include_router(projects_router, prefix="/api")
+    app.include_router(conversations_router, prefix="/api")
+    app.include_router(artifacts_router, prefix="/api")
     app.include_router(reports_router, prefix="/api")
     app.include_router(tasks_router, prefix="/api")
     app.include_router(traces_router, prefix="/api")

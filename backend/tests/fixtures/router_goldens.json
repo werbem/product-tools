@@ -1,0 +1,399 @@
+{
+  "version": 1,
+  "description": "RouterService.route goldens. intent_override is optional pre-extracted Intent; context.has_prior_task maps to ConversationRoutingContext.has_prior_analysis.",
+  "cases": [
+    {
+      "id": "ca_commercial_behavior_report",
+      "message": "帮我完成龙腾出行和悦途的机场场景的竞品分析报告，重点是商业行为、海外战略方向的竞品差异",
+      "expect_workflow_type": "competitive_analysis",
+      "critical": true,
+      "notes": "商业行为不得打成 research；分析报告优先",
+      "intent_override": {
+        "type": "competitive_analysis",
+        "company": "龙腾出行",
+        "competitors": ["悦途"],
+        "product": "机场场景",
+        "objective": "product_improvement",
+        "confidence": 0.92
+      },
+      "context": { "has_prior_task": false }
+    },
+    {
+      "id": "ca_feizhu_meituan_strategy",
+      "message": "对比飞猪和美团酒店，给出产品策略建议",
+      "expect_workflow_type": "competitive_analysis",
+      "critical": true,
+      "notes": "对比 + 策略建议 → Full，不是 information_query",
+      "intent_override": {
+        "type": "competitive_analysis",
+        "company": "飞猪",
+        "competitors": ["美团"],
+        "product": "酒店",
+        "objective": "product_improvement"
+      },
+      "context": { "has_prior_task": false }
+    },
+    {
+      "id": "ca_vs_full_report",
+      "message": "分析 A vs B 的竞争优势并出完整报告",
+      "expect_workflow_type": "competitive_analysis",
+      "critical": true,
+      "notes": "完整报告 + vs → competitive_analysis",
+      "intent_override": {
+        "type": "competitive_analysis",
+        "company": "A",
+        "competitors": ["B"],
+        "product": "产品"
+      },
+      "context": { "has_prior_task": false }
+    },
+    {
+      "id": "ca_en_commercial_behavior",
+      "message": "Write a competitive analysis report on X vs Y focusing on commercial behavior",
+      "expect_workflow_type": "competitive_analysis",
+      "critical": true,
+      "notes": "英文竞品分析报告 + commercial behavior 不得打成 research",
+      "intent_override": {
+        "type": "competitive_analysis",
+        "company": "X",
+        "competitors": ["Y"],
+        "product": "product"
+      },
+      "context": { "has_prior_task": false }
+    },
+    {
+      "id": "ca_analyze_and_collect_support",
+      "message": "分析飞猪 vs 美团，并收集相关公开资料做支撑",
+      "expect_workflow_type": "competitive_analysis",
+      "critical": true,
+      "notes": "分析为主、收集做支撑 → CA（易混组）",
+      "intent_override": {
+        "type": "competitive_analysis",
+        "company": "飞猪",
+        "competitors": ["美团"],
+        "product": "酒店"
+      },
+      "context": { "has_prior_task": false }
+    },
+    {
+      "id": "res_douyin_collect",
+      "message": "帮我收集字节跳动抖音近期商业发展信息",
+      "expect_workflow_type": "research",
+      "critical": true,
+      "notes": "收集 + 近期信息 → research，不是 CA",
+      "intent_override": {
+        "type": "competitive_analysis",
+        "company": "字节跳动",
+        "competitors": [],
+        "product": "抖音",
+        "objective": "intelligence_collection"
+      },
+      "context": { "has_prior_task": false }
+    },
+    {
+      "id": "res_ctrip_membership_materials",
+      "message": "收集携程会员体系资料",
+      "expect_workflow_type": "research",
+      "critical": true,
+      "notes": "收集资料 → research",
+      "intent_override": {
+        "company": "携程",
+        "competitors": [],
+        "product": "会员体系",
+        "objective": "intelligence_collection"
+      },
+      "context": { "has_prior_task": false }
+    },
+    {
+      "id": "res_meituan_survey_dynamics",
+      "message": "调研一下美团酒店近期动态",
+      "expect_workflow_type": "research",
+      "critical": true,
+      "notes": "调研/近期动态：现行规则为 research（非 information_query），因 collection 信号优先于轻问",
+      "intent_override": {
+        "company": "美团",
+        "competitors": [],
+        "product": "酒店",
+        "objective": "intelligence_collection"
+      },
+      "context": { "has_prior_task": false }
+    },
+    {
+      "id": "iq_meituan_recent_changes",
+      "message": "美团酒店最近有什么变化？",
+      "expect_workflow_type": "information_query",
+      "critical": true,
+      "notes": "最近有什么变化 → information_query；无收集/分析动词",
+      "intent_override": {
+        "company": "美团",
+        "competitors": [],
+        "product": "酒店"
+      },
+      "context": { "has_prior_task": false }
+    },
+    {
+      "id": "iq_feizhu_new_features",
+      "message": "飞猪酒店有哪些新功能？",
+      "expect_workflow_type": "information_query",
+      "critical": false,
+      "notes": "有哪些新功能 → information_query",
+      "intent_override": {
+        "company": "飞猪",
+        "competitors": [],
+        "product": "酒店"
+      },
+      "context": { "has_prior_task": false }
+    },
+    {
+      "id": "iq_en_whats_new",
+      "message": "What's new with Meituan hotel?",
+      "expect_workflow_type": "information_query",
+      "critical": false,
+      "notes": "英文 what's new → information_query",
+      "intent_override": {
+        "company": "Meituan",
+        "competitors": [],
+        "product": "hotel"
+      },
+      "context": { "has_prior_task": false }
+    },
+    {
+      "id": "sq_ctrip_membership_how",
+      "message": "携程会员体系大概是怎样的？",
+      "expect_workflow_type": "simple_question",
+      "critical": true,
+      "needs_product_confirm": true,
+      "notes": "Step 5：体系「是怎样」走 simple，不启 Full。dump 曾落入 LegacyBridge CA，已小修 simple 模式。轻问 vs 定义以 simple 为更安全策略。",
+      "intent_override": {
+        "company": "携程",
+        "competitors": [],
+        "product": "会员体系"
+      },
+      "context": { "has_prior_task": false }
+    },
+    {
+      "id": "sq_feizhu_what_company",
+      "message": "飞猪是什么公司？",
+      "expect_workflow_type": "simple_question",
+      "critical": true,
+      "notes": "是什么公司 → simple_question",
+      "intent_override": {
+        "company": "飞猪",
+        "competitors": [],
+        "product": null
+      },
+      "context": { "has_prior_task": false }
+    },
+    {
+      "id": "sq_longteng_who",
+      "message": "龙腾出行是谁？",
+      "expect_workflow_type": "simple_question",
+      "critical": true,
+      "notes": "是谁 → simple_question",
+      "intent_override": {
+        "company": "龙腾出行",
+        "competitors": [],
+        "product": null
+      },
+      "context": { "has_prior_task": false }
+    },
+    {
+      "id": "sq_yuetu_oneliner",
+      "message": "一句话介绍悦途",
+      "expect_workflow_type": "simple_question",
+      "critical": true,
+      "notes": "一句话介绍 → simple_question",
+      "intent_override": {
+        "company": "悦途",
+        "competitors": [],
+        "product": null
+      },
+      "context": { "has_prior_task": false }
+    },
+    {
+      "id": "sq_yuetu_what",
+      "message": "悦途是什么",
+      "expect_workflow_type": "simple_question",
+      "critical": false,
+      "notes": "短句定义",
+      "intent_override": {
+        "company": "悦途",
+        "competitors": []
+      },
+      "context": { "has_prior_task": false }
+    },
+    {
+      "id": "sq_what_is_ctrip",
+      "message": "What is Ctrip?",
+      "expect_workflow_type": "simple_question",
+      "critical": false,
+      "notes": "英文 What is → simple_question",
+      "intent_override": {
+        "company": "Ctrip",
+        "competitors": []
+      },
+      "context": { "has_prior_task": false }
+    },
+    {
+      "id": "sq_en_one_sentence_intro",
+      "message": "Feizhu vs Meituan hotel brief intro in one sentence",
+      "expect_workflow_type": "simple_question",
+      "critical": false,
+      "notes": "in one sentence 定义/简介；无 analysis report 动词",
+      "intent_override": {
+        "company": "飞猪",
+        "competitors": ["美团"],
+        "product": "hotel"
+      },
+      "context": { "has_prior_task": false }
+    },
+    {
+      "id": "sq_competitors_in_last_report",
+      "message": "刚才报告里竞品是谁？",
+      "expect_workflow_type": "simple_question",
+      "critical": false,
+      "notes": "竞品是谁 → simple（非 follow_up：无「基于刚才/刚才的报告」升级句式）",
+      "intent_override": null,
+      "context": { "has_prior_task": true }
+    },
+    {
+      "id": "fu_pricing_with_prior",
+      "message": "基于刚才结果，定价上该怎么做？",
+      "expect_workflow_type": "follow_up",
+      "critical": true,
+      "notes": "has_prior=true → follow_up；升级由 FollowUpService 判定，Router 只标 follow_up",
+      "intent_override": null,
+      "context": { "has_prior_task": true }
+    },
+    {
+      "id": "fu_pricing_no_prior",
+      "message": "基于刚才结果看定价",
+      "expect_workflow_type": "follow_up",
+      "critical": true,
+      "notes": "has_prior=false 仍为 follow_up（no_prior 澄清路径）",
+      "intent_override": null,
+      "context": { "has_prior_task": false }
+    },
+    {
+      "id": "fu_continue_full_ca_report",
+      "message": "继续，出一份完整竞品分析报告",
+      "expect_workflow_type": "follow_up",
+      "critical": true,
+      "notes": "Router 层期望 follow_up；完整报告升级由 FollowUpService。金标暴露原模式漏匹配「完整竞品分析报告」，已小修 follow_up 正则。",
+      "intent_override": null,
+      "context": { "has_prior_task": true }
+    },
+    {
+      "id": "fu_supplement_pricing",
+      "message": "请补充一下刚才分析里的定价部分",
+      "expect_workflow_type": "follow_up",
+      "critical": false,
+      "notes": "补充一下 + 刚才分析 → follow_up",
+      "intent_override": null,
+      "context": { "has_prior_task": true }
+    },
+    {
+      "id": "oos_weather",
+      "message": "今天天气怎么样",
+      "expect_workflow_type": "out_of_scope",
+      "critical": true,
+      "notes": "硬域外",
+      "intent_override": {
+        "type": "unsupported",
+        "company": null,
+        "competitors": [],
+        "product": null
+      },
+      "context": { "has_prior_task": false }
+    },
+    {
+      "id": "oos_leave_email",
+      "message": "帮我写一封请假邮件",
+      "expect_workflow_type": "out_of_scope",
+      "critical": true,
+      "notes": "请假邮件：硬域外（不依赖 Intent unsupported，避免误启 Full）",
+      "intent_override": null,
+      "context": { "has_prior_task": false }
+    },
+    {
+      "id": "oos_what_time",
+      "message": "现在几点了",
+      "expect_workflow_type": "out_of_scope",
+      "critical": true,
+      "notes": "几点了 → OOS",
+      "intent_override": {
+        "type": "unsupported",
+        "company": null,
+        "competitors": [],
+        "product": null
+      },
+      "context": { "has_prior_task": false }
+    },
+    {
+      "id": "oos_en_weather",
+      "message": "How's the weather today?",
+      "expect_workflow_type": "out_of_scope",
+      "critical": false,
+      "notes": "英文天气",
+      "intent_override": {
+        "type": "unsupported",
+        "company": null,
+        "competitors": [],
+        "product": null
+      },
+      "context": { "has_prior_task": false }
+    },
+    {
+      "id": "mix_collect_ca_report_materials",
+      "message": "帮我收集竞品分析报告相关资料",
+      "expect_workflow_type": "competitive_analysis",
+      "critical": false,
+      "needs_product_confirm": true,
+      "notes": "Step 6 原文倾向 research（收集优先于嵌套「报告」）。现行 LegacyBridge：分析信号覆盖收集 → CA。按产品已落地规则写死，待确认是否改为 research。",
+      "intent_override": {
+        "company": "竞品",
+        "competitors": [],
+        "product": "资料",
+        "objective": "intelligence_collection"
+      },
+      "context": { "has_prior_task": false }
+    },
+    {
+      "id": "mix_commercial_behavior_types",
+      "message": "商业行为有哪些类型？",
+      "expect_workflow_type": "simple_question",
+      "critical": true,
+      "needs_product_confirm": true,
+      "notes": "不得 research。更安全策略：simple（勿误启 Full）。simple vs OOS 待产品确认。",
+      "intent_override": null,
+      "context": { "has_prior_task": false }
+    },
+    {
+      "id": "res_en_research_meituan_news",
+      "message": "Please research Meituan hotel recent news",
+      "expect_workflow_type": "research",
+      "critical": false,
+      "notes": "中英混合：EN collect/research 句，避免 LegacyBridge 默认 Full",
+      "intent_override": {
+        "company": "Meituan",
+        "competitors": [],
+        "product": "hotel",
+        "objective": "intelligence_collection"
+      },
+      "context": { "has_prior_task": false }
+    },
+    {
+      "id": "res_en_collect_douyin_info",
+      "message": "Collect recent public info on Douyin commercial development",
+      "expect_workflow_type": "research",
+      "critical": false,
+      "notes": "EN collect + info → research；commercial 不单独当分析",
+      "intent_override": {
+        "company": "ByteDance",
+        "competitors": [],
+        "product": "Douyin"
+      },
+      "context": { "has_prior_task": false }
+    }
+  ]
+}

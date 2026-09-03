@@ -11,6 +11,8 @@ import type {
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 const API_PREFIX = `${API_BASE}/api`;
 
+export { API_BASE, API_PREFIX };
+
 export class ApiError extends Error {
   status: number;
   detail: any;
@@ -32,7 +34,7 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
   });
   if (!res.ok) {
     const body = await res.text();
-    let detail: any = body;
+    let detail: unknown = body;
     try {
       detail = JSON.parse(body);
     } catch {
@@ -40,7 +42,26 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
     }
     throw new ApiError(res.status, detail, `API Error ${res.status}: ${typeof detail === "string" ? detail : JSON.stringify(detail)}`);
   }
-  return res.json();
+  if (res.status === 204) {
+    return undefined as T;
+  }
+  const text = await res.text();
+  if (!text) {
+    return undefined as T;
+  }
+  return JSON.parse(text) as T;
+}
+
+export { request };
+
+export function resolveApiUrl(path: string): string {
+  if (path.startsWith("http://") || path.startsWith("https://")) {
+    return path;
+  }
+  if (path.startsWith("/api")) {
+    return `${API_BASE}${path}`;
+  }
+  return `${API_PREFIX}${path.startsWith("/") ? path : `/${path}`}`;
 }
 
 export async function createReport(input: AnalysisInput, signal?: AbortSignal): Promise<ReportCreateResponse> {

@@ -172,12 +172,16 @@ class PlannerAgent(BaseAgent[PlannerInput, PlannerOutput]):
         )
 
         try:
-            result = await llm_client.generate(
-                system_prompt=SYSTEM_PROMPT,
-                user_prompt=user_prompt,
-                response_model=LLMResearchPlanOutput,
-                temperature=0.7,
-            )
+            llm_timeout = input_data.llm_timeout_seconds
+            gen_kwargs: dict = {
+                "system_prompt": SYSTEM_PROMPT,
+                "user_prompt": user_prompt,
+                "response_model": LLMResearchPlanOutput,
+                "temperature": 0.7,
+            }
+            if llm_timeout is not None:
+                gen_kwargs["timeout"] = llm_timeout
+            result = await llm_client.generate(**gen_kwargs)
 
             parsed = result.parsed
             if parsed and parsed.analysis_goal and len(parsed.research_dimensions) >= 2:

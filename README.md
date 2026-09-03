@@ -113,8 +113,10 @@ cp .env.example .env
 docker compose up --build -d
 
 # 4. 访问
-open http://localhost:3000
+open http://localhost:3000/workspace
 ```
+
+详细部署说明见 [docs/DEPLOY.md](docs/DEPLOY.md)。
 
 ## 🔧 技术亮点
 
@@ -144,6 +146,22 @@ open http://localhost:3000
 │   └── lib/                 # API 客户端
 ├── docker-compose.yml       # 一键部署
 └── .env.example             # 环境变量模板
+```
+
+## 🧪 Router 金标（路由回归）
+
+可重复评估 `RouterService.route`，防止「商业行为 / 收集 vs 报告 / 轻问 vs 定义」回退。
+
+- 金标：`backend/tests/fixtures/router_goldens.json`（`critical` 必须 100%；全量准确率 ≥95%）
+- 添加用例：见 `backend/tests/unit/test_router_goldens_pr_v26.py` 文件头 docstring
+- 一条命令：
+
+```bash
+cd backend && PYTHONPATH=. python3 -m pytest \
+  tests/unit/test_router_goldens_pr_v26.py \
+  tests/unit/test_router_service_pr_v21.py \
+  tests/unit/test_intent_mapper_routing.py \
+  -q
 ```
 
 ## 📄 License

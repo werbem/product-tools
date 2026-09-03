@@ -31,8 +31,8 @@ class TavilySource(ResearchSource):
     Output format:  unified EvidenceItem
     """
 
-    DEFAULT_MAX_RESULTS = 8
-    DEFAULT_SEARCH_DEPTH = "advanced"
+    DEFAULT_MAX_RESULTS = 5
+    DEFAULT_SEARCH_DEPTH = "basic"
 
     @property
     def name(self) -> str:
@@ -58,23 +58,37 @@ class TavilySource(ResearchSource):
         """
         task_id = (context or {}).get("task_id", "unknown")
         start = time.time()
+        ctx = context or {}
+        max_results = int(ctx.get("max_results_per_source") or self.DEFAULT_MAX_RESULTS)
+        max_results = max(1, min(max_results, 20))
+        start_date = str(ctx.get("evidence_start_date") or "").strip() or None
+        hint = str(ctx.get("freshness_query_hint") or "").strip()
+        search_query = query
+        if hint and hint not in query:
+            search_query = f"{query} {hint}".strip()
 
         # --- Trace: search start ---
         trace = trace_collector.start_trace(
             task_id=task_id,
             stage="search_tool",
             agent_name="research",
-            input_summary=f"Tavily: {query[:100]}",
-            metadata={"source": "tavily", "query": query},
+            input_summary=f"Tavily: {search_query[:100]}",
+            metadata={
+                "source": "tavily",
+                "query": search_query,
+                "start_date": start_date or "",
+            },
         )
         # ---
 
         # Execute Tavily API call (reuse existing function)
         tavily_result: TavilyResult = await tavily_search(
-            query=query,
-            max_results=self.DEFAULT_MAX_RESULTS,
+            query=search_query,
+            max_results=max_results,
             search_depth=self.DEFAULT_SEARCH_DEPTH,
-            include_raw_content=True,
+            # Raw page HTML is huge and often stalls LLM evidence extraction.
+            include_raw_content=False,
+            start_date=start_date,
         )
 
         duration_ms = int((time.time() - start) * 1000)
