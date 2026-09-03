@@ -83,6 +83,10 @@ class DeepAnalysisWorkflowLauncher:
         self._memory_writer = memory_writer
         self._running: set[asyncio.Task[Any]] = set()
 
+    def has_in_process_tasks(self) -> bool:
+        """True while a background Deep asyncio.Task is still running (this worker)."""
+        return bool(self._running)
+
     async def launch(
         self,
         request: ReportCreateRequest,

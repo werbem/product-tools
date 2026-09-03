@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
+import os
 import re
 
 from app.application.dto.intent_dto import (
@@ -16,6 +19,17 @@ from app.application.services.intent_mapper import (
 )
 from app.infrastructure.agents.intent_prompt import SYSTEM_PROMPT, USER_PROMPT_TEMPLATE
 from app.infrastructure.llm.client import LLMClient, llm_client
+
+logger = logging.getLogger(__name__)
+
+# Short interactive timeout — keep Intent off the Deep Research/Report LLM queue.
+# Override via INTENT_LLM_TIMEOUT_S (seconds). Does not change workflow node budgets.
+def _intent_llm_timeout_s() -> float:
+    raw = os.getenv("INTENT_LLM_TIMEOUT_S", "20")
+    try:
+        return max(5.0, min(float(raw), 60.0))
+    except (TypeError, ValueError):
+        return 20.0
 
 # Ordered by length desc so longer names match first (e.g. 拼多多 before 拼)
 _KNOWN_COMPANIES = (
@@ -157,7 +171,20 @@ class IntentUnderstandingService:
         try:
             llm_output = await self._call_llm(merged_message, partial)
             return self._build_result(llm_output, request.message, partial)
-        except Exception:
+        except asyncio.TimeoutError:
+            logger.warning(
+                "intent_timeout conversation_id=%s timeout_s=%s",
+                request.conversation_id,
+                _intent_llm_timeout_s(),
+            )
+            # Conservative rule/heuristic only — never invent a silent Deep launch path.
+            return self._heuristic_result(request.message, partial)
+        except Exception as exc:
+            logger.warning(
+                "intent_fallback conversation_id=%s err=%s",
+                request.conversation_id,
+                f"{type(exc).__name__}: {exc}",
+            )
             return self._heuristic_result(request.message, partial)
 
     async def _call_llm(
@@ -167,15 +194,23 @@ class IntentUnderstandingService:
     ) -> IntentLLMOutput:
         partial_text = json.dumps(partial.model_dump(), ensure_ascii=False) if partial else "无"
         user_prompt = USER_PROMPT_TEMPLATE.format(message=message, partial=partial_text)
-        response = await self._llm.generate(
-            system_prompt=SYSTEM_PROMPT,
-            user_prompt=user_prompt,
-            response_model=IntentLLMOutput,
-            temperature=0.2,
+        timeout_s = _intent_llm_timeout_s()
+        response = await asyncio.wait_for(
+            self._llm.generate(
+                system_prompt=SYSTEM_PROMPT,
+                user_prompt=user_prompt,
+                response_model=IntentLLMOutput,
+                temperature=0.2,
+                timeout=timeout_s,
+            ),
+            timeout=timeout_s + 2.0,
         )
         if response.parsed and isinstance(response.parsed, IntentLLMOutput):
             return response.parsed
         if response.content:
+            # Client may surface timeouts as synthetic content
+            if str(response.content).startswith("[TIMEOUT]"):
+                raise asyncio.TimeoutError(response.content)
             data = json.loads(response.content)
             return IntentLLMOutput.model_validate(data)
         raise ValueError("empty LLM response")

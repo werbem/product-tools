@@ -20,6 +20,7 @@ TurnStatus = Literal[
     "query_answered",
     "follow_up_answered",
     "question_answered",
+    "workflow_busy",
 ]
 
 

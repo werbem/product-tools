@@ -26,7 +26,8 @@ export function ConversationMessageList({
           {message.task_id
           && message.metadata?.message_type !== "query_answered"
           && message.metadata?.message_type !== "follow_up_answered"
-          && message.metadata?.message_type !== "question_answered" ? (
+          && message.metadata?.message_type !== "question_answered"
+          && message.metadata?.message_type !== "workflow_busy" ? (
             <AnalysisStartedCard
               taskId={message.task_id}
               workflowType={

@@ -52,7 +52,8 @@ export type TurnStatus =
   | "unsupported_workflow"
   | "query_answered"
   | "follow_up_answered"
-  | "question_answered";
+  | "question_answered"
+  | "workflow_busy";
 
 export interface RoutingDecision {
   workflow_type:

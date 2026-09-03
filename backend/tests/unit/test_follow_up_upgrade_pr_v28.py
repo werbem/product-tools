@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -173,6 +173,12 @@ def conv_env(tmp_path: Path, monkeypatch):
         "app.infrastructure.persistence.copilot.stores.DATA_DIR",
         persistence,
     )
+    # Isolate single-worker busy gate from any leftover on-disk pending tasks.
+    from app.infrastructure.persistence import task_report_runtime
+
+    monkeypatch.setattr(task_report_runtime, "_tasks", {})
+    monkeypatch.setattr(task_report_runtime, "persist_tasks", lambda: None)
+
     project_store = ProjectStore()
     conversation_store = ConversationStore()
     message_store = MessageStore()
@@ -186,10 +192,14 @@ def conv_env(tmp_path: Path, monkeypatch):
             status="pending",
         ),
     )
+    deep._running = set()
+    deep.has_in_process_tasks = MagicMock(return_value=False)
     collect = AsyncMock()
     collect.launch = AsyncMock(
         return_value=WorkflowLaunchResult(task_id="task-collect", report_id="rep-collect"),
     )
+    collect._running = set()
+    collect.has_in_process_tasks = MagicMock(return_value=False)
     svc = ConversationService(
         conversation_store=conversation_store,
         message_store=message_store,

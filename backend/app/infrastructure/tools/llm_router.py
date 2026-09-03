@@ -26,7 +26,9 @@ Architecture:
 
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
 import time
 from datetime import datetime
 from dataclasses import dataclass, field
@@ -42,6 +44,8 @@ from app.infrastructure.tools.source_selection import (
     source_selection,
 )
 from app.infrastructure.trace import trace_collector
+
+logger = logging.getLogger(__name__)
 
 
 # ═══════════════════════════════════════════════════
@@ -305,12 +309,28 @@ class LLMRouter:
 
         except Exception as exc:
             duration_ms = int((time.time() - start) * 1000)
+            is_timeout = isinstance(exc, (TimeoutError, asyncio.TimeoutError)) or (
+                "timeout" in str(exc).lower() or "[TIMEOUT]" in str(exc)
+            )
+            logger.warning(
+                "llm_router %s, falling back to rule-based: %s",
+                "timed_out" if is_timeout else "failed",
+                exc,
+            )
             trace_collector.end_trace(
                 trace,
                 success=False,
-                output_summary="LLM routing failed, falling back to rule-based",
+                output_summary=(
+                    "LLM routing timed out, rule fallback"
+                    if is_timeout
+                    else "LLM routing failed, falling back to rule-based"
+                ),
                 error=str(exc),
-                metadata={"duration_ms": duration_ms, "fallback": True},
+                metadata={
+                    "duration_ms": duration_ms,
+                    "fallback": True,
+                    "timeout": is_timeout,
+                },
             )
 
             # Fallback to rule-based selection

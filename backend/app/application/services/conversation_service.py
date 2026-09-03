@@ -26,6 +26,7 @@ from app.application.services.follow_up_service import (
 from app.application.services.router_service import RouterService
 from app.application.services.simple_query_service import SimpleQueryService
 from app.application.services.simple_question_service import SimpleQuestionService
+from app.application.services.workflow_busy import BusyLongTask, busy_user_message, resolve_busy
 from app.application.services.workflow_launcher import DeepAnalysisWorkflowLauncher
 from app.domain.entities.conversation import Conversation
 from app.domain.entities.copilot_common import utc_now
@@ -299,81 +300,94 @@ class ConversationService:
                     launcher = self._workflow_launcher
                     if not launcher:
                         raise RuntimeError("workflow launcher not configured")
-                    try:
-                        launch_intent = self._intent_for_follow_up_upgrade(
-                            intent, msgs, project_memory=memory,
+                    busy = self._resolve_long_task_busy(conversation.project_id)
+                    if busy:
+                        status, message_type, assistant_content, busy_meta = (
+                            self._workflow_busy_payload(busy)
                         )
-                        report_request = to_report_create_request(
-                            launch_intent, analysis_mode=analysis_mode,
-                        )
-                    except ValueError as exc:
-                        status = "follow_up_answered"
-                        message_type = "follow_up_answered"
-                        assistant_content = (
-                            "想升级为完整竞品分析，但还缺少必要信息。\n"
-                            "请补充：我方公司、对比竞品、以及产品或场景。\n"
-                            "例如：飞猪 vs 美团，产品是酒店。"
-                        )
+                        assistant_metadata.update(busy_meta)
                         assistant_metadata.update({
                             "workflow_type": "follow_up",
-                            "follow_up_mode": "upgrade_blocked_missing_entities",
+                            "follow_up_mode": "upgrade_blocked_busy",
                             "prior_task_id": follow.prior_task_id,
                             "prior_report_id": follow.prior_report_id,
-                            "upgrade_error": str(exc),
                         })
                     else:
-                        scene_extra = (
-                            f"{report_request.scene or ''}\n"
-                            f"【追问升级】{content}\n"
-                            f"【上轮上下文摘要】\n{follow.context_summary}"
-                        ).strip()
-                        optional = dict(report_request.optional or {})
-                        optional.update({
-                            "follow_up": True,
-                            "prior_task_id": follow.prior_task_id,
-                            "prior_report_id": follow.prior_report_id,
-                            "follow_up_context": follow.context_summary[:2000],
-                            "raw_message": content,
-                        })
-                        report_request = report_request.model_copy(
-                            update={"scene": scene_extra[:2500], "optional": optional},
-                        )
-                        report_request = self._attach_memory_optional(report_request, memory)
-                        report_request = self._attach_knowledge_optional(
-                            report_request, knowledge_notes,
-                        )
-                        launch_result = await launcher.launch(
-                            report_request,
-                            WorkflowLaunchContext(
-                                project_id=conversation.project_id,
-                                conversation_id=conversation_id,
-                                source_message_id=user_message.id,
-                            ),
-                        )
-                        status = "analysis_started"
-                        message_type = "analysis_started"
-                        task_id = launch_result.task_id
-                        report_id = launch_result.report_id
-                        mode_label = "完整模式" if analysis_mode == "full" else "快速模式"
-                        assistant_content = (
-                            "已基于上一轮结果启动完整竞品分析（追问升级）。\n"
-                            f"分析模式：{mode_label}\n正在启动分析，请稍候…"
-                        )
-                        assistant_metadata.update({
-                            "task_id": task_id,
-                            "report_id": report_id,
-                            "workflow_type": "deep_analysis",
-                            "workflow_kind": "deep_analysis",
-                            "analysis_mode": analysis_mode,
-                            "follow_up_mode": "upgrade_analysis",
-                            "prior_task_id": follow.prior_task_id,
-                            "prior_report_id": follow.prior_report_id,
-                            "routing_debug": optional.get("routing_debug"),
-                            "validated_input": self._validated_input_snapshot(
-                                report_request, launch_intent,
-                            ),
-                        })
-                        await self._publish_analysis_started(conversation_id, task_id, report_id)
+                        try:
+                            launch_intent = self._intent_for_follow_up_upgrade(
+                                intent, msgs, project_memory=memory,
+                            )
+                            report_request = to_report_create_request(
+                                launch_intent, analysis_mode=analysis_mode,
+                            )
+                        except ValueError as exc:
+                            status = "follow_up_answered"
+                            message_type = "follow_up_answered"
+                            assistant_content = (
+                                "想升级为完整竞品分析，但还缺少必要信息。\n"
+                                "请补充：我方公司、对比竞品、以及产品或场景。\n"
+                                "例如：飞猪 vs 美团，产品是酒店。"
+                            )
+                            assistant_metadata.update({
+                                "workflow_type": "follow_up",
+                                "follow_up_mode": "upgrade_blocked_missing_entities",
+                                "prior_task_id": follow.prior_task_id,
+                                "prior_report_id": follow.prior_report_id,
+                                "upgrade_error": str(exc),
+                            })
+                        else:
+                            scene_extra = (
+                                f"{report_request.scene or ''}\n"
+                                f"【追问升级】{content}\n"
+                                f"【上轮上下文摘要】\n{follow.context_summary}"
+                            ).strip()
+                            optional = dict(report_request.optional or {})
+                            optional.update({
+                                "follow_up": True,
+                                "prior_task_id": follow.prior_task_id,
+                                "prior_report_id": follow.prior_report_id,
+                                "follow_up_context": follow.context_summary[:2000],
+                                "raw_message": content,
+                            })
+                            report_request = report_request.model_copy(
+                                update={"scene": scene_extra[:2500], "optional": optional},
+                            )
+                            report_request = self._attach_memory_optional(report_request, memory)
+                            report_request = self._attach_knowledge_optional(
+                                report_request, knowledge_notes,
+                            )
+                            launch_result = await launcher.launch(
+                                report_request,
+                                WorkflowLaunchContext(
+                                    project_id=conversation.project_id,
+                                    conversation_id=conversation_id,
+                                    source_message_id=user_message.id,
+                                ),
+                            )
+                            status = "analysis_started"
+                            message_type = "analysis_started"
+                            task_id = launch_result.task_id
+                            report_id = launch_result.report_id
+                            mode_label = "完整模式" if analysis_mode == "full" else "快速模式"
+                            assistant_content = (
+                                "已基于上一轮结果启动完整竞品分析（追问升级）。\n"
+                                f"分析模式：{mode_label}\n正在启动分析，请稍候…"
+                            )
+                            assistant_metadata.update({
+                                "task_id": task_id,
+                                "report_id": report_id,
+                                "workflow_type": "deep_analysis",
+                                "workflow_kind": "deep_analysis",
+                                "analysis_mode": analysis_mode,
+                                "follow_up_mode": "upgrade_analysis",
+                                "prior_task_id": follow.prior_task_id,
+                                "prior_report_id": follow.prior_report_id,
+                                "routing_debug": optional.get("routing_debug"),
+                                "validated_input": self._validated_input_snapshot(
+                                    report_request, launch_intent,
+                                ),
+                            })
+                            await self._publish_analysis_started(conversation_id, task_id, report_id)
                 else:
                     status = "follow_up_answered"
                     message_type = "follow_up_answered"
@@ -409,72 +423,86 @@ class ConversationService:
                 launcher = self._collection_launcher
                 if not launcher:
                     raise RuntimeError("collection launcher not configured")
-                report_request = to_report_create_request(
-                    intent, analysis_mode=analysis_mode,
-                )
-                report_request = self._attach_memory_optional(report_request, memory)
-                report_request = self._attach_knowledge_optional(
-                    report_request, knowledge_notes,
-                )
-                launch_result = await launcher.launch(
-                    report_request,
-                    WorkflowLaunchContext(
-                        project_id=conversation.project_id,
-                        conversation_id=conversation_id,
-                        source_message_id=user_message.id,
-                    ),
-                )
-                status = "analysis_started"
-                message_type = "analysis_started"
-                task_id = launch_result.task_id
-                report_id = launch_result.report_id
-                mode_label = "完整模式" if analysis_mode == "full" else "快速模式"
-                assistant_content = self._collection_started_message(intent, mode_label)
-                # Dual-write: UI still keys off intelligence_collection
-                assistant_metadata.update({
-                    "task_id": task_id,
-                    "report_id": report_id,
-                    "workflow_type": "intelligence_collection",
-                    "workflow_kind": "intelligence_collection",
-                    "analysis_mode": analysis_mode,
-                    "routing_debug": (report_request.optional or {}).get("routing_debug"),
-                })
-                await self._publish_analysis_started(conversation_id, task_id, report_id)
+                busy = self._resolve_long_task_busy(conversation.project_id)
+                if busy:
+                    status, message_type, assistant_content, busy_meta = (
+                        self._workflow_busy_payload(busy)
+                    )
+                    assistant_metadata.update(busy_meta)
+                else:
+                    report_request = to_report_create_request(
+                        intent, analysis_mode=analysis_mode,
+                    )
+                    report_request = self._attach_memory_optional(report_request, memory)
+                    report_request = self._attach_knowledge_optional(
+                        report_request, knowledge_notes,
+                    )
+                    launch_result = await launcher.launch(
+                        report_request,
+                        WorkflowLaunchContext(
+                            project_id=conversation.project_id,
+                            conversation_id=conversation_id,
+                            source_message_id=user_message.id,
+                        ),
+                    )
+                    status = "analysis_started"
+                    message_type = "analysis_started"
+                    task_id = launch_result.task_id
+                    report_id = launch_result.report_id
+                    mode_label = "完整模式" if analysis_mode == "full" else "快速模式"
+                    assistant_content = self._collection_started_message(intent, mode_label)
+                    # Dual-write: UI still keys off intelligence_collection
+                    assistant_metadata.update({
+                        "task_id": task_id,
+                        "report_id": report_id,
+                        "workflow_type": "intelligence_collection",
+                        "workflow_kind": "intelligence_collection",
+                        "analysis_mode": analysis_mode,
+                        "routing_debug": (report_request.optional or {}).get("routing_debug"),
+                    })
+                    await self._publish_analysis_started(conversation_id, task_id, report_id)
             elif wf == "competitive_analysis":
                 launcher = self._workflow_launcher
                 if not launcher:
                     raise RuntimeError("workflow launcher not configured")
-                report_request = to_report_create_request(
-                    intent, analysis_mode=analysis_mode,
-                )
-                report_request = self._attach_memory_optional(report_request, memory)
-                report_request = self._attach_knowledge_optional(
-                    report_request, knowledge_notes,
-                )
-                launch_result = await launcher.launch(
-                    report_request,
-                    WorkflowLaunchContext(
-                        project_id=conversation.project_id,
-                        conversation_id=conversation_id,
-                        source_message_id=user_message.id,
-                    ),
-                )
-                status = "analysis_started"
-                message_type = "analysis_started"
-                task_id = launch_result.task_id
-                report_id = launch_result.report_id
-                mode_label = "完整模式" if analysis_mode == "full" else "快速模式"
-                assistant_content = self._analysis_started_message(intent, mode_label)
-                assistant_metadata.update({
-                    "task_id": task_id,
-                    "report_id": report_id,
-                    "workflow_type": "deep_analysis",
-                    "workflow_kind": "deep_analysis",
-                    "analysis_mode": analysis_mode,
-                    "routing_debug": (report_request.optional or {}).get("routing_debug"),
-                    "validated_input": self._validated_input_snapshot(report_request, intent),
-                })
-                await self._publish_analysis_started(conversation_id, task_id, report_id)
+                busy = self._resolve_long_task_busy(conversation.project_id)
+                if busy:
+                    status, message_type, assistant_content, busy_meta = (
+                        self._workflow_busy_payload(busy)
+                    )
+                    assistant_metadata.update(busy_meta)
+                else:
+                    report_request = to_report_create_request(
+                        intent, analysis_mode=analysis_mode,
+                    )
+                    report_request = self._attach_memory_optional(report_request, memory)
+                    report_request = self._attach_knowledge_optional(
+                        report_request, knowledge_notes,
+                    )
+                    launch_result = await launcher.launch(
+                        report_request,
+                        WorkflowLaunchContext(
+                            project_id=conversation.project_id,
+                            conversation_id=conversation_id,
+                            source_message_id=user_message.id,
+                        ),
+                    )
+                    status = "analysis_started"
+                    message_type = "analysis_started"
+                    task_id = launch_result.task_id
+                    report_id = launch_result.report_id
+                    mode_label = "完整模式" if analysis_mode == "full" else "快速模式"
+                    assistant_content = self._analysis_started_message(intent, mode_label)
+                    assistant_metadata.update({
+                        "task_id": task_id,
+                        "report_id": report_id,
+                        "workflow_type": "deep_analysis",
+                        "workflow_kind": "deep_analysis",
+                        "analysis_mode": analysis_mode,
+                        "routing_debug": (report_request.optional or {}).get("routing_debug"),
+                        "validated_input": self._validated_input_snapshot(report_request, intent),
+                    })
+                    await self._publish_analysis_started(conversation_id, task_id, report_id)
             else:
                 status = "out_of_scope"
                 message_type = "out_of_scope"
@@ -514,6 +542,37 @@ class ConversationService:
                 report_id=report_id,
                 routing_decision=routing_decision,
             )
+
+    def _resolve_long_task_busy(self, project_id: str) -> BusyLongTask | None:
+        """Single-worker gate: any incomplete Deep/Collection blocks a new launch.
+
+        Scope is **global** (not project-scoped). project_id is retained for
+        logging / future multi-tenant; under one uvicorn worker, global is safer
+        because Intent/Research share the same LLM client.
+        """
+        return resolve_busy(
+            deep_launcher=self._workflow_launcher,
+            collection_launcher=self._collection_launcher,
+            project_id=project_id,
+        )
+
+    @staticmethod
+    def _workflow_busy_payload(
+        busy: BusyLongTask,
+    ) -> tuple[str, str, str, dict[str, Any]]:
+        """status, message_type, content, metadata — never analysis_started."""
+        return (
+            "workflow_busy",
+            "workflow_busy",
+            busy_user_message(busy),
+            {
+                "busy_task_id": busy.task_id,
+                "busy_workflow_kind": busy.workflow_kind,
+                "busy_status": busy.status,
+                "workflow_type": None,
+                "workflow_kind": None,
+            },
+        )
 
     def _build_routing_context(
         self,

@@ -87,11 +87,12 @@ pnpm build && pnpm start
 
 ## 已知限制
 
-1. **单 worker**：多 worker 会导致 Conversation SSE / EventBus 状态不一致。
+1. **单 worker**：多 worker 会导致 Conversation SSE / EventBus 状态不一致。同时仅建议运行 **一个** Deep / Collection 长任务；占线时短问（信息查询 / 简答 / 追问短答）仍可用，新的分析/收集请求会返回 `workflow_busy`。
 2. **JSON File Store**：Copilot 数据（项目、对话、Artifact）存于 `APP_DATA_DIR`，非关系型数据库。
 3. **SSE 无历史 replay**：刷新 Conversation 页后需依赖 REST API 拉取消息；进行中的任务可重新订阅 progress。
 4. **真实 LLM**：验收与生产需配置 `OPENAI_API_KEY`；无 Key 时可能进入 Demo 模式。
 5. **Report metadata**：新报告在 `GET /api/reports/{id}` 的 `metadata` 字段含 `generation_mode`、`analysis_mode`；旧报告无此字段。
+6. **Intent 超时**：交互侧 Intent 使用独立较短超时（`INTENT_LLM_TIMEOUT_S`，默认 20s），与 Deep 内 Research/Report 长超时分离。
 
 ## 快速验收
 
