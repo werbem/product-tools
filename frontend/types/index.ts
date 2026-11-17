@@ -88,12 +88,19 @@ export interface ReportDetailResponse {
     source_type?: string;
     date?: string;
     domain?: string;
+    /** Present only when persisted on the source record; often absent on report sources_used. */
+    confidence?: string | number | null;
   }[];
   metadata?: {
     generation_mode?: string | null;
     generation_note?: string | null;
     segment_timeouts?: number[];
+    segment_retries?: number[];
+    segment_evidence_fallback?: number[];
     analysis_mode?: "fast" | "full" | null;
+    report_timeout_fallback?: boolean | null;
+    compare_timeout?: boolean | null;
+    strategy_timeout?: boolean | null;
   } | null;
 }
 

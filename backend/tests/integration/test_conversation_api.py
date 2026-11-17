@@ -123,6 +123,7 @@ class TestConversationAPI:
         assert body["status"] in (
             "needs_clarification",
             "analysis_started",
+            "awaiting_confirmation",
             "unsupported",
             "out_of_scope",
             "unsupported_workflow",

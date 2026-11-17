@@ -83,6 +83,11 @@ class TestResolveWorkflowKind:
                 "deep_analysis",
             ),
             (
+                "帮我收集竞品分析报告相关资料",
+                [],
+                "intelligence_collection",
+            ),
+            (
                 "Write a competitive analysis report on A vs B focusing on commercial behavior",
                 ["B"],
                 "deep_analysis",

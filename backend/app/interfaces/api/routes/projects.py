@@ -175,7 +175,7 @@ def delete_knowledge_note(
 
 
 @router.get("/{project_id}/knowledge/search", response_model=list[KnowledgeNoteResponse])
-def search_knowledge_notes(
+async def search_knowledge_notes(
     project_id: str,
     q: str = "",
     limit: int = 5,
@@ -184,10 +184,8 @@ def search_knowledge_notes(
     if not (q or "").strip():
         raise HTTPException(status_code=422, detail="q must not be empty")
     try:
-        return [
-            _note_response(n)
-            for n in service.search(project_id, q.strip(), limit=limit)
-        ]
+        notes = await service.search_async(project_id, q.strip(), limit=limit)
+        return [_note_response(n) for n in notes]
     except ProjectNotFoundError:
         raise HTTPException(status_code=404, detail="项目不存在")
 

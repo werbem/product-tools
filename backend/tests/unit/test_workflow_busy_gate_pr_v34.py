@@ -273,13 +273,35 @@ class TestBusyGateConversation:
         assert find_busy_long_task(tasks=s["tasks"]) is None
         s["intent"].understand = AsyncMock(return_value=_intent())
 
-        result = await s["svc"].process_user_message(conv.id, "对比飞猪和美团酒店，给出产品策略建议")
+        pending = await s["svc"].process_user_message(conv.id, "对比飞猪和美团酒店，给出产品策略建议")
+        assert pending.status == "awaiting_confirmation"
+        s["deep"].launch.assert_not_awaited()
+        task_id = pending.assistant_message.metadata["research_task"]["id"]
+        result = await s["svc"].confirm_research_task(conv.id, task_id)
         assert result.status == "analysis_started"
         assert result.task_id == "new-deep"
         s["deep"].launch.assert_awaited_once()
 
 
 class TestIntentTimeoutNoMislaunch:
+    @pytest.mark.asyncio
+    async def test_listing_skips_intent_llm(self) -> None:
+        llm = AsyncMock()
+        llm.generate = AsyncMock(
+            side_effect=AssertionError("listing must not call Intent LLM"),
+        )
+        svc = IntentUnderstandingService(llm_client_param=llm)
+        result = await svc.understand(
+            IntentUnderstandingRequest(
+                message="拼多多的竞品有哪些？",
+                conversation_id="c-listing",
+            ),
+        )
+        assert result.company == "拼多多"
+        assert result.needs_clarification is False
+        assert result.type == "competitive_analysis"
+        llm.generate.assert_not_called()
+
     @pytest.mark.asyncio
     async def test_intent_timeout_uses_heuristic_not_crash(self, monkeypatch) -> None:
         monkeypatch.setenv("INTENT_LLM_TIMEOUT_S", "15")

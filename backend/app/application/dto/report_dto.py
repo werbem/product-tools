@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 
 
 class ReportCreateRequest(BaseModel):
-    our_company: str = Field(..., min_length=1, description="我方公司名称")
+    our_company: str = Field(..., min_length=1, description="分析公司名称")
     competitor_company: str = Field(..., min_length=1, description="竞品公司名称")
     product: str = Field(..., min_length=1, description="比对产品名称")
     objective: str = Field(
@@ -43,7 +43,12 @@ class ReportGenerationMetadataDTO(BaseModel):
     generation_mode: Optional[str] = None
     generation_note: Optional[str] = None
     segment_timeouts: list[int] = Field(default_factory=list)
+    segment_retries: list[int] = Field(default_factory=list)
+    segment_evidence_fallback: list[int] = Field(default_factory=list)
     analysis_mode: Optional[str] = None
+    report_timeout_fallback: Optional[bool] = None
+    compare_timeout: Optional[bool] = None
+    strategy_timeout: Optional[bool] = None
 
 
 class ReportDetailResponse(BaseModel):

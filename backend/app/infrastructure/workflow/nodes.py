@@ -362,11 +362,43 @@ async def research_node(state: WorkflowState) -> dict[str, Any]:
 
     ctx = _make_ctx(state, "research")
     agent = ResearchAgent()
+    vi = get_validated_input(state)
+    user_query = ""
+    if isinstance(optional, dict):
+        user_query = str(
+            optional.get("raw_message")
+            or (state.get("user_input") or {}).get("scene")
+            or ""
+        ).strip()
+    if not user_query:
+        user_query = str(vi.get("objective") or "").strip()
+    # Evidence Reuse V1: project_id / workflow_kind live on the task entry + optional
+    project_id = ""
+    workflow_kind = ""
+    competitors: list[str] = []
+    if isinstance(optional, dict):
+        workflow_kind = str(optional.get("workflow_kind") or "").strip()
+        raw_comps = optional.get("competitors")
+        if isinstance(raw_comps, list):
+            competitors = [str(c).strip() for c in raw_comps if str(c or "").strip()]
+    try:
+        task_entry = task_report_runtime.get_tasks().get(_tid(state)) or {}
+        if isinstance(task_entry, dict):
+            project_id = str(task_entry.get("project_id") or "").strip()
+            if not workflow_kind:
+                workflow_kind = str(task_entry.get("workflow_kind") or "").strip()
+    except Exception:
+        pass
+
     research_input = ResearchInput(
         research_plan=state.get("research_plan", {}),
-        our_company=get_validated_input(state).get("our_company", ""),
-        competitor_company=get_validated_input(state).get("competitor_company", ""),
-        product=get_validated_input(state).get("product", ""),
+        our_company=vi.get("our_company", ""),
+        competitor_company=vi.get("competitor_company", ""),
+        product=vi.get("product", ""),
+        user_query=user_query,
+        project_id=project_id or None,
+        workflow_kind=workflow_kind or None,
+        competitors=competitors,
         time_budget_seconds=research_timeout,
         max_source_types=cfg.max_source_types,
         max_results_per_source=cfg.research_max_results,
@@ -485,6 +517,16 @@ async def research_node(state: WorkflowState) -> dict[str, Any]:
             if not phase_record.get("error"):
                 phase_record["error"] = f"research_timeout_{int(research_timeout)}s"
 
+        # Evidence Reuse V1: surface reuse_meta without changing QualityReport schema
+        reuse_meta = phase_record.get("reuse_meta")
+        if isinstance(reuse_meta, dict) and reuse_meta:
+            qr_obj = getattr(result.output, "quality_report", None)
+            if qr_obj is not None and not getattr(qr_obj, "reuse_meta", None):
+                try:
+                    setattr(qr_obj, "reuse_meta", reuse_meta)
+                except Exception:
+                    pass
+
         wf_meta = dict(budget_updates.get("workflow_budget_meta") or {})
         wf_meta.update(clustering_meta)
         for key in (
@@ -495,6 +537,9 @@ async def research_node(state: WorkflowState) -> dict[str, Any]:
         ):
             if key in timeout_phase_meta:
                 wf_meta[key] = timeout_phase_meta[key]
+        if isinstance(reuse_meta, dict) and reuse_meta:
+            wf_meta["reuse_meta"] = reuse_meta
+            wf_meta["skipped_search"] = bool(reuse_meta.get("skipped_search"))
         budget_out = {**budget_updates, "workflow_budget_meta": wf_meta}
 
         used_raw_fallback = (
@@ -511,18 +556,23 @@ async def research_node(state: WorkflowState) -> dict[str, Any]:
         elif used_raw_fallback:
             stage_hint = RAW_TIMEOUT_FALLBACK_HINT
             progress_out = 36.0
+        elif isinstance(reuse_meta, dict) and reuse_meta.get("skipped_search"):
+            stage_hint = "已复用历史证据，跳过检索"
+            progress_out = 40.0
         else:
             stage_hint = RESEARCH_PROGRESS_HINTS[40.0]
             progress_out = 40.0
 
+        quality_dump: dict[str, Any] = {}
+        if result.output and hasattr(result.output, "quality_report") and hasattr(result.output.quality_report, "model_dump"):
+            quality_dump = result.output.quality_report.model_dump()
+        if isinstance(reuse_meta, dict) and reuse_meta:
+            quality_dump = {**quality_dump, "reuse_meta": reuse_meta}
+
         return {
             **budget_out,
             "evidence_bundle": eb.model_dump() if eb and hasattr(eb, "model_dump") else (eb if isinstance(eb, dict) else {}),
-            "quality_report": (
-                result.output.quality_report.model_dump()
-                if result.output and hasattr(result.output, "quality_report") and hasattr(result.output.quality_report, "model_dump")
-                else {}
-            ),
+            "quality_report": quality_dump,
             "clusters": clusters_list,
             "current_phase": "researched",
             "progress": progress_out,

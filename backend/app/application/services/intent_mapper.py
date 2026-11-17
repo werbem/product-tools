@@ -7,12 +7,18 @@ from typing import Any, Literal
 
 from app.application.dto.intent_dto import KNOWN_OBJECTIVES, IntentUnderstandingResult
 from app.application.dto.report_dto import ReportCreateRequest
+from app.application.services.analysis_deliverable_semantics import (
+    looks_like_analysis_deliverable,
+    matched_analysis_deliverable_signals,
+)
+from app.application.services.intent_entities import sanitize_competitors
 
 WorkflowKind = Literal["deep_analysis", "intelligence_collection"]
 
 # A. Deep-analysis strong signals
 _ANALYSIS_SIGNAL_PATTERN = re.compile(
     r"竞品分析|竞争分析|对比分析|分析报告|完整报告|战略建议|给出建议|差异分析|竞品差异|"
+    r"竞争优势|策略建议|产品建议|产品策略|"
     r"给出.{0,12}建议|产品策略建议|"
     r"对比(?!研究)|分析.{0,40}(?:vs|VS|竞品)|(?:vs|VS).{0,40}分析|"
     r"competitive\s+analysis|competitor\s+analysis|comparison\s+report|"
@@ -31,6 +37,18 @@ _SOFT_COLLECTION_COOC_PATTERN = re.compile(
     r"|(?:商业行为|市场信息).{0,24}(?:收集|调研|搜集|资料|信息)",
 )
 
+# Primary collect-materials ask; nested「竞品分析报告」is object of 收集, not a CA request
+_COLLECTION_PRIMARY_MATERIALS = re.compile(
+    r"(?:帮我)?(?:收集|搜集|调研).{0,40}(?:资料|信息|情报)",
+)
+
+# Strong CA signals that still win over collection-primary
+_STRONG_CA_OVERRIDE = re.compile(
+    r"对比|vs\.?|VS|完整报告|战略建议|给出建议|差异分析|"
+    r"competitive\s+analysis|comparison\s+report",
+    re.IGNORECASE,
+)
+
 _FOCUS_CLAUSE_PATTERN = re.compile(
     r"(?:重点(?:是|：|:)|focus(?:ing)?\s+on)\s*(.+)$",
     re.IGNORECASE | re.DOTALL,
@@ -44,7 +62,11 @@ _INTEL_COLLECTION_DIMENSIONS = [
 
 
 def detect_analysis_intent(text: str | None) -> bool:
-    return bool(_ANALYSIS_SIGNAL_PATTERN.search(text or ""))
+    """True for classic CA signals or approved analysis-deliverable semantics."""
+    text = text or ""
+    if _ANALYSIS_SIGNAL_PATTERN.search(text):
+        return True
+    return looks_like_analysis_deliverable(text)
 
 
 def detect_collection_intent(text: str | None) -> bool:
@@ -55,8 +77,26 @@ def detect_collection_intent(text: str | None) -> bool:
     return bool(_COLLECTION_SIGNAL_PATTERN.search(text))
 
 
+def collection_primary_over_nested_analysis(text: str | None) -> bool:
+    """True when user mainly asks to collect materials; nested CA words are modifiers.
+
+    Example:「帮我收集竞品分析报告相关资料」→ research, not deep analysis.
+    """
+    text = text or ""
+    if not _COLLECTION_PRIMARY_MATERIALS.search(text):
+        return False
+    if _STRONG_CA_OVERRIDE.search(text):
+        return False
+    return True
+
+
 def matched_analysis_signals(text: str | None) -> list[str]:
-    return [m.group(0) for m in _ANALYSIS_SIGNAL_PATTERN.finditer(text or "")]
+    text = text or ""
+    hits = [m.group(0) for m in _ANALYSIS_SIGNAL_PATTERN.finditer(text)]
+    for h in matched_analysis_deliverable_signals(text):
+        if h not in hits:
+            hits.append(h)
+    return hits
 
 
 def matched_collection_signals(text: str | None) -> list[str]:
@@ -85,8 +125,10 @@ def resolve_workflow_kind(
     )
     competitors = [c for c in (intent.competitors or []) if c]
 
-    # 3) both → analysis wins
+    # 3) both → analysis wins, unless collection-primary (G3 nested「报告」)
     if has_analysis and has_collection:
+        if collection_primary_over_nested_analysis(raw):
+            return "intelligence_collection"
         return "deep_analysis"
     # 1) analysis strong signal + competitors
     if has_analysis and competitors:
@@ -113,7 +155,10 @@ def build_routing_debug(
     matched_c = matched_collection_signals(raw)
 
     if has_analysis and has_collection:
-        reason = "analysis_signal_overrides_collection_keyword"
+        if collection_primary_over_nested_analysis(raw):
+            reason = "collection_primary_over_nested_analysis"
+        else:
+            reason = "analysis_signal_overrides_collection_keyword"
     elif has_analysis and (intent.competitors or []):
         reason = "analysis_signal_with_competitors"
     elif has_analysis:
@@ -161,8 +206,9 @@ def to_report_create_request(
     kind = resolve_workflow_kind(intent)
     routing_debug = build_routing_debug(intent)
 
-    if intent.competitors:
-        competitor_company = "、".join(intent.competitors)
+    competitors = sanitize_competitors(list(intent.competitors or []), intent.company)
+    if competitors:
+        competitor_company = "、".join(competitors)
     elif kind == "intelligence_collection":
         competitor_company = "公开市场与主要竞品"
     else:
@@ -193,7 +239,7 @@ def to_report_create_request(
         optional={
             "source": "intent_understanding",
             "raw_message": intent.raw_message,
-            "competitors": intent.competitors,
+            "competitors": competitors,
             "analysis_mode": analysis_mode,
             "workflow_kind": kind,
             "routing_debug": routing_debug,

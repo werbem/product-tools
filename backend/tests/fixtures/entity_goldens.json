@@ -1,0 +1,132 @@
+{
+  "version": 1,
+  "description": "DecisionEntityExtractor goldens (Phase 3). Entity fill must not imply workflow launch.",
+  "cases": [
+    {
+      "id": "listing_douyin_subject_message",
+      "message": "抖音都有哪些竞品？",
+      "has_prior": false,
+      "prior": {},
+      "memory": null,
+      "legacy_intent": null,
+      "expect_company": "抖音",
+      "expect_company_source": "message",
+      "critical": true,
+      "notes": "列表主语从消息抽取"
+    },
+    {
+      "id": "listing_pronoun_uses_prior",
+      "message": "它都有哪些竞品？",
+      "has_prior": true,
+      "prior": { "company": "滴滴出行", "product": "滴滴打车" },
+      "memory": null,
+      "legacy_intent": null,
+      "expect_company": "滴滴出行",
+      "expect_company_source": "prior",
+      "critical": true,
+      "notes": "正例：代词列表问不造「它都」，回退 prior"
+    },
+    {
+      "id": "listing_pronoun_rejects_invalid_memory",
+      "message": "它都有哪些竞品？",
+      "has_prior": false,
+      "prior": {},
+      "memory": {
+        "entities": {
+          "our_company": "它都",
+          "product": "滴滴打车",
+          "competitors": ["高德打车"]
+        }
+      },
+      "legacy_intent": null,
+      "expect_company": null,
+      "expect_company_source": "unknown",
+      "expect_product": "滴滴打车",
+      "expect_product_source": "memory",
+      "critical": true,
+      "notes": "反例相关：Memory 无效公司「它都」被丢弃"
+    },
+    {
+      "id": "vs_pair_message",
+      "message": "对比飞猪和美团酒店，给出产品策略建议",
+      "has_prior": false,
+      "prior": {},
+      "memory": null,
+      "legacy_intent": {
+        "company": "飞猪",
+        "competitors": ["美团"],
+        "product": "酒店"
+      },
+      "expect_company": "飞猪",
+      "expect_company_source": "message",
+      "expect_competitors_contains": ["美团"],
+      "critical": true,
+      "notes": "A和B / legacy comps"
+    },
+    {
+      "id": "collect_didi_seed",
+      "message": "帮我调研滴滴打车",
+      "has_prior": false,
+      "prior": {},
+      "memory": null,
+      "legacy_intent": {
+        "company": "滴滴出行",
+        "product": "滴滴打车",
+        "competitors": []
+      },
+      "expect_company": "滴滴出行",
+      "expect_company_source": "message",
+      "expect_product": "滴滴打车",
+      "expect_product_source": "message",
+      "expect_time_range": null,
+      "critical": true
+    },
+    {
+      "id": "memory_fill_when_message_empty_entities",
+      "message": "基于刚才结果，定价上该怎么做？",
+      "has_prior": true,
+      "prior": {},
+      "memory": {
+        "entities": {
+          "our_company": "滴滴出行",
+          "product": "滴滴打车",
+          "competitors": ["高德打车", "曹操出行"]
+        }
+      },
+      "legacy_intent": null,
+      "expect_company": "滴滴出行",
+      "expect_company_source": "memory",
+      "expect_competitors_contains": ["高德打车"],
+      "critical": true,
+      "notes": "追问句无实体 → Memory 回填；不意味着开 Deep"
+    },
+    {
+      "id": "curated_peers_for_douyin",
+      "message": "抖音的竞品分析",
+      "has_prior": false,
+      "prior": {},
+      "memory": null,
+      "legacy_intent": { "company": "抖音", "product": "短视频", "competitors": [] },
+      "expect_company": "抖音",
+      "expect_competitors_min": 1,
+      "expect_competitors_source_in": ["curated", "memory", "message"],
+      "critical": false,
+      "notes": "curated 可填 peers，但不触发 workflow"
+    },
+    {
+      "id": "time_range_recent",
+      "message": "帮我收集字节跳动抖音近期商业发展信息",
+      "has_prior": false,
+      "prior": {},
+      "memory": null,
+      "legacy_intent": {
+        "company": "字节跳动",
+        "product": "抖音",
+        "competitors": []
+      },
+      "expect_company": "字节跳动",
+      "expect_time_range_contains": "近期",
+      "critical": false
+    }
+  ]
+}

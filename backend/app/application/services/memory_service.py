@@ -62,4 +62,20 @@ class MemoryService:
             memory.key_findings = findings
 
         memory.updated_at = utc_now()
-        return self._memory_store.upsert(memory)
+        saved = self._memory_store.upsert(memory)
+        try:
+            import asyncio
+
+            from app.application.services.memory_findings_index import memory_findings_index
+
+            async def _go() -> None:
+                await memory_findings_index.reindex(project_id, saved.key_findings)
+
+            try:
+                loop = asyncio.get_running_loop()
+                loop.create_task(_go())
+            except RuntimeError:
+                asyncio.run(_go())
+        except Exception:
+            pass
+        return saved

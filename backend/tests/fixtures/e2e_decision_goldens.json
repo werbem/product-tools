@@ -1,0 +1,379 @@
+{
+  "version": 1,
+  "description": "Phase 7 decision-stack E2E goldens. Intent→Entity→Planner→ThinRouter. Dual +/- where noted.",
+  "cases": [
+    {
+      "id": "e2e_ca_launch_didi",
+      "message": "帮我做滴滴出行和曹操出行的竞品分析报告",
+      "has_prior": false,
+      "intent_override": {
+        "company": "滴滴出行",
+        "product": "滴滴打车",
+        "competitors": ["曹操出行"]
+      },
+      "expect_task_family": "analyze",
+      "expect_execution_mode": "deep_fast",
+      "expect_workflow_type": "competitive_analysis",
+      "expect_capability": "deep_analysis",
+      "expect_clarification": false,
+      "expect_step_ops": ["deep_analysis"],
+      "slice": "ca_launch",
+      "tags": ["ca_launch"],
+      "critical": true
+    },
+    {
+      "id": "e2e_ca_with_prior_still_deep",
+      "message": "帮我做滴滴出行和曹操出行的竞品分析报告",
+      "has_prior": true,
+      "intent_override": {
+        "company": "滴滴出行",
+        "product": "滴滴打车",
+        "competitors": ["曹操出行"]
+      },
+      "expect_task_family": "analyze",
+      "expect_execution_mode": "deep_fast",
+      "expect_workflow_type": "competitive_analysis",
+      "expect_capability": "deep_analysis",
+      "forbid_capability": "follow_up",
+      "pair_with": "e2e_follow_up_ops_advice",
+      "slice": "ca_launch",
+      "tags": ["ca_launch", "confusable"],
+      "critical": true,
+      "notes": "反例：有 prior 仍显式 CA → deep，不是 follow_up"
+    },
+    {
+      "id": "e2e_research_collect",
+      "message": "帮我收集字节跳动抖音近期商业发展信息",
+      "has_prior": false,
+      "intent_override": {
+        "company": "字节跳动",
+        "product": "抖音",
+        "competitors": []
+      },
+      "expect_task_family": "collect",
+      "expect_execution_mode": "research",
+      "expect_workflow_type": "research",
+      "expect_capability": "research",
+      "forbid_deep": true,
+      "slice": "research",
+      "tags": ["research"],
+      "critical": true
+    },
+    {
+      "id": "e2e_research_nested_ca_materials",
+      "message": "帮我收集竞品分析报告相关资料",
+      "has_prior": false,
+      "intent_override": {
+        "company": "字节跳动",
+        "product": "抖音",
+        "competitors": []
+      },
+      "expect_task_family": "collect",
+      "expect_execution_mode": "research",
+      "expect_workflow_type": "research",
+      "expect_capability": "research",
+      "forbid_deep": true,
+      "forbid_capability": "multi_step",
+      "slice": "research",
+      "tags": ["research", "confusable"],
+      "critical": true,
+      "notes": "嵌套报告作收集对象 → 单步 research"
+    },
+    {
+      "id": "e2e_listing_only",
+      "message": "抖音都有哪些竞品？",
+      "has_prior": false,
+      "intent_override": {
+        "company": "抖音",
+        "product": "短视频",
+        "competitors": ["快手"]
+      },
+      "expect_task_family": "ask",
+      "expect_execution_mode": "short_answer",
+      "expect_workflow_type": "simple_question",
+      "expect_capability": "short_answer",
+      "forbid_deep": true,
+      "forbid_capability": "multi_step",
+      "pair_with": "e2e_multi_listing_then_analyze",
+      "slice": "listing",
+      "tags": ["listing"],
+      "critical": true
+    },
+    {
+      "id": "e2e_qa_dynamics",
+      "message": "美团酒店最近有什么变化？",
+      "has_prior": false,
+      "intent_override": {
+        "company": "美团",
+        "product": "酒店",
+        "competitors": []
+      },
+      "expect_task_family": "ask",
+      "expect_execution_mode": "short_answer",
+      "expect_workflow_type": "information_query",
+      "expect_capability": "short_answer",
+      "forbid_deep": true,
+      "slice": "qa",
+      "tags": ["qa", "information_query"],
+      "critical": true
+    },
+    {
+      "id": "e2e_qa_definition",
+      "message": "飞猪是什么公司？",
+      "has_prior": false,
+      "intent_override": {
+        "company": "飞猪",
+        "product": null,
+        "competitors": []
+      },
+      "expect_execution_mode": "short_answer",
+      "expect_workflow_type": "simple_question",
+      "expect_capability": "short_answer",
+      "forbid_deep": true,
+      "slice": "qa",
+      "tags": ["qa", "simple_question"],
+      "critical": true
+    },
+    {
+      "id": "e2e_follow_up_ops_advice",
+      "message": "如果我是产品运营，我下一步应该做什么，推进用户体验和稳固产品壁垒？",
+      "has_prior": true,
+      "intent_override": {
+        "company": "滴滴出行",
+        "product": "滴滴打车",
+        "competitors": ["高德打车", "曹操出行"]
+      },
+      "expect_task_family": "advise_prior",
+      "expect_execution_mode": "follow_up",
+      "expect_workflow_type": "follow_up",
+      "expect_capability": "follow_up",
+      "forbid_deep": true,
+      "pair_with": "e2e_ca_with_prior_still_deep",
+      "slice": "follow_up_short",
+      "tags": ["follow_up", "follow_up_advice"],
+      "critical": true,
+      "notes": "正例：运营建议追问 → follow_up"
+    },
+    {
+      "id": "e2e_follow_up_pricing_deixis",
+      "message": "基于刚才结果，定价上该怎么做？",
+      "has_prior": true,
+      "intent_override": {
+        "company": "飞猪",
+        "product": "酒店",
+        "competitors": ["美团"]
+      },
+      "expect_execution_mode": "follow_up",
+      "expect_workflow_type": "follow_up",
+      "expect_capability": "follow_up",
+      "forbid_deep": true,
+      "slice": "follow_up_short",
+      "tags": ["follow_up", "follow_up_deixis"],
+      "critical": true
+    },
+    {
+      "id": "e2e_follow_up_upgrade",
+      "message": "继续，出一份完整竞品分析报告",
+      "has_prior": true,
+      "intent_override": {
+        "company": "龙腾出行",
+        "product": "机场场景",
+        "competitors": ["悦途"]
+      },
+      "expect_task_family": "advise_prior",
+      "expect_discourse": "upgrade_prior",
+      "expect_execution_mode": "deep_full",
+      "expect_workflow_type": "competitive_analysis",
+      "expect_capability": "deep_analysis",
+      "expect_reason_contains": "upgrade",
+      "expect_step_ops": ["upgrade_analysis"],
+      "slice": "follow_up_upgrade",
+      "tags": ["follow_up", "follow_up_upgrade"],
+      "critical": true
+    },
+    {
+      "id": "e2e_clarify_missing_company",
+      "message": "帮我做竞品分析报告",
+      "has_prior": false,
+      "intent_override": {
+        "company": null,
+        "product": null,
+        "competitors": []
+      },
+      "expect_task_family": "analyze",
+      "expect_execution_mode": "clarify",
+      "expect_capability": "clarify",
+      "expect_clarification": true,
+      "forbid_deep": true,
+      "slice": "clarify",
+      "tags": ["clarify", "ambiguous"],
+      "critical": true
+    },
+    {
+      "id": "e2e_ambiguous_no_default_deep",
+      "message": "随便聊聊吧",
+      "has_prior": false,
+      "intent_override": {},
+      "expect_execution_mode": "short_answer",
+      "expect_capability": "short_answer",
+      "forbid_deep": true,
+      "slice": "ambiguous",
+      "tags": ["ambiguous"],
+      "critical": true,
+      "notes": "无信号不得默认 Deep"
+    },
+    {
+      "id": "e2e_invalid_deixis_with_prior",
+      "message": "它都有哪些竞品？",
+      "has_prior": true,
+      "intent_override": {
+        "company": "滴滴出行",
+        "product": "滴滴打车",
+        "competitors": ["高德打车"]
+      },
+      "expect_company": "滴滴出行",
+      "expect_execution_mode": "short_answer",
+      "expect_workflow_type": "simple_question",
+      "expect_capability": "short_answer",
+      "forbid_deep": true,
+      "pair_with": "e2e_invalid_deixis_bad_memory",
+      "slice": "invalid_deixis",
+      "tags": ["invalid_deixis", "listing"],
+      "critical": true,
+      "notes": "正例：代词列表问回退 prior，不造「它都」"
+    },
+    {
+      "id": "e2e_invalid_deixis_bad_memory",
+      "message": "它都有哪些竞品？",
+      "has_prior": false,
+      "intent_override": {
+        "company": null,
+        "product": null,
+        "competitors": []
+      },
+      "memory": {
+        "entities": {
+          "our_company": "它都",
+          "product": "滴滴打车",
+          "competitors": ["高德打车"]
+        }
+      },
+      "expect_company": null,
+      "expect_execution_mode": "clarify",
+      "expect_capability": "clarify",
+      "expect_clarification": true,
+      "forbid_deep": true,
+      "pair_with": "e2e_invalid_deixis_with_prior",
+      "slice": "invalid_deixis",
+      "tags": ["invalid_deixis"],
+      "critical": true,
+      "notes": "反例：Memory 无效「它都」丢弃 → 澄清，不启动 Deep"
+    },
+    {
+      "id": "e2e_memory_fill_dynamics",
+      "message": "最近有什么变化？",
+      "has_prior": true,
+      "intent_override": {
+        "company": null,
+        "product": null,
+        "competitors": []
+      },
+      "memory": {
+        "entities": {
+          "our_company": "美团",
+          "product": "酒店",
+          "competitors": []
+        }
+      },
+      "expect_company": "美团",
+      "expect_company_source": "memory",
+      "expect_execution_mode": "short_answer",
+      "expect_workflow_type": "information_query",
+      "expect_capability": "short_answer",
+      "forbid_deep": true,
+      "slice": "memory_fill",
+      "tags": ["memory_fill", "qa"],
+      "critical": true
+    },
+    {
+      "id": "e2e_multi_listing_then_analyze",
+      "message": "抖音都有哪些竞品？帮我完成抖音的竞品分析报告",
+      "has_prior": false,
+      "intent_override": {
+        "company": "抖音",
+        "product": "短视频",
+        "competitors": []
+      },
+      "expect_execution_mode": "multi_step",
+      "expect_workflow_type": "competitive_analysis",
+      "expect_capability": "multi_step",
+      "expect_step_ops": ["list_competitors", "deep_analysis"],
+      "expect_reason_contains": "listing_then_analyze",
+      "pair_with": "e2e_listing_only",
+      "slice": "multi_step",
+      "tags": ["multi_step", "listing", "ca_launch"],
+      "critical": true
+    },
+    {
+      "id": "e2e_multi_collect_then_advise",
+      "message": "帮我收集字节跳动抖音近期信息并给出运营建议",
+      "has_prior": false,
+      "intent_override": {
+        "company": "字节跳动",
+        "product": "抖音",
+        "competitors": []
+      },
+      "expect_execution_mode": "multi_step",
+      "expect_workflow_type": "research",
+      "expect_capability": "multi_step",
+      "expect_step_ops": ["intelligence_collection", "follow_up_short_answer"],
+      "forbid_deep": true,
+      "slice": "multi_step",
+      "tags": ["multi_step", "research"],
+      "critical": true
+    },
+    {
+      "id": "e2e_multi_collect_then_analyze",
+      "message": "帮我收集滴滴出行资料并做竞品分析",
+      "has_prior": false,
+      "intent_override": {
+        "company": "滴滴出行",
+        "product": "滴滴打车",
+        "competitors": ["曹操出行"]
+      },
+      "expect_execution_mode": "multi_step",
+      "expect_workflow_type": "competitive_analysis",
+      "expect_capability": "multi_step",
+      "expect_step_ops": ["intelligence_collection", "deep_analysis"],
+      "slice": "multi_step",
+      "tags": ["multi_step", "research", "ca_launch"],
+      "critical": true
+    },
+    {
+      "id": "e2e_oos_weather",
+      "message": "今天天气怎么样",
+      "has_prior": false,
+      "intent_override": {},
+      "expect_task_family": "oos",
+      "expect_execution_mode": "oos",
+      "expect_workflow_type": "out_of_scope",
+      "expect_capability": "reject_oos",
+      "forbid_deep": true,
+      "slice": "oos",
+      "tags": ["oos"],
+      "critical": true
+    },
+    {
+      "id": "e2e_oos_email",
+      "message": "帮我写一封请假邮件",
+      "has_prior": false,
+      "intent_override": {},
+      "expect_execution_mode": "oos",
+      "expect_capability": "reject_oos",
+      "forbid_deep": true,
+      "slice": "oos",
+      "tags": ["oos"],
+      "critical": true
+    }
+  ]
+}

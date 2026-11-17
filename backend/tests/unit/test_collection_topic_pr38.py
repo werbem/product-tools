@@ -91,6 +91,45 @@ class TestFormatterAndState:
         assert "收集主题**：收集字节跳动抖音近期商业发展信息" in md
         assert "product_improvement" not in md
 
+    def test_markdown_stale_fallback_shows_freshness_note(self):
+        state = {
+            "user_input": {
+                "our_company": "滴滴打车",
+                "product": "华南市场",
+                "scene": "调研滴滴打车华南市场发展趋势",
+            },
+            "validated_input": {"our_company": "滴滴打车", "product": "华南市场"},
+            "evidence_bundle": {
+                "evidence_items": [
+                    {
+                        "id": "E001",
+                        "title": "旧闻",
+                        "url": "https://example.com/old",
+                        "date": "2018-01-01",
+                        "content": "旧内容",
+                        "source": "web",
+                        "confidence": "low",
+                        "raw_data": {"stale_fallback": True},
+                    }
+                ]
+            },
+            "collection_meta": {
+                "sources_attempted": 1,
+                "sources_succeeded": 1,
+                "stale_fallback_used": True,
+                "stale_fallback_count": 1,
+                "warnings": [
+                    "时效提示：检索结果均早于 2022-09-06，已降级保留 1 条较旧公开信息，时效性较低，请谨慎引用。"
+                ],
+            },
+            "quality_report": {"stale_fallback_used": True},
+        }
+        md = build_collection_markdown(state)
+        assert "时效说明" in md
+        assert "降级保留" in md
+        assert "时效较低，降级保留" in md
+        assert "整理 **1** 条有效信息" in md
+
     def test_old_document_without_topic_fields_resolves_from_scene(self):
         state = {
             "user_input": {

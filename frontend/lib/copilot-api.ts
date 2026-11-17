@@ -4,7 +4,9 @@ import type {
   ConversationMessage,
   ConversationTurnResponse,
   IntentUnderstandingResult,
+  KnowledgeNote,
   Project,
+  ProjectMemory,
 } from "@/types/copilot";
 import { API_PREFIX, request, resolveApiUrl } from "@/lib/api";
 
@@ -100,6 +102,29 @@ export async function sendConversationMessage(
   );
 }
 
+export async function confirmResearchTask(
+  conversationId: string,
+  researchTaskId: string,
+  patch?: {
+    collection_targets?: string | null;
+    collection_topics?: string | null;
+    research_scope?: string | null;
+    analysis_subject?: string | null;
+    competitors?: string[];
+    analysis_product?: string | null;
+    analysis_goal?: string | null;
+    analysis_mode?: "fast" | "full";
+  },
+): Promise<ConversationTurnResponse> {
+  return request<ConversationTurnResponse>(
+    `${API_PREFIX}/conversations/${encodeURIComponent(conversationId)}/research-tasks/${encodeURIComponent(researchTaskId)}/confirm`,
+    {
+      method: "POST",
+      body: JSON.stringify(patch ?? {}),
+    },
+  );
+}
+
 export async function listArtifacts(filters?: {
   projectId?: string;
   conversationId?: string;
@@ -140,8 +165,31 @@ export async function getTaskProgress(taskId: string) {
   );
 }
 
+export async function cancelTask(taskId: string): Promise<{
+  task_id: string;
+  status: string;
+  already_terminal: boolean;
+  cancelled_in_process?: boolean;
+}> {
+  return request(`${API_PREFIX}/tasks/${encodeURIComponent(taskId)}/cancel`, {
+    method: "POST",
+  });
+}
+
 export async function getTaskCollection(taskId: string) {
   return request<import("@/types").CollectionDetailResponse>(
     `${API_PREFIX}/tasks/${encodeURIComponent(taskId)}/collection`,
+  );
+}
+
+export async function getProjectMemory(projectId: string): Promise<ProjectMemory> {
+  return request<ProjectMemory>(
+    `${API_PREFIX}/projects/${encodeURIComponent(projectId)}/memory`,
+  );
+}
+
+export async function listKnowledgeNotes(projectId: string): Promise<KnowledgeNote[]> {
+  return request<KnowledgeNote[]>(
+    `${API_PREFIX}/projects/${encodeURIComponent(projectId)}/knowledge/notes`,
   );
 }

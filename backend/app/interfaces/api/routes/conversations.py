@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 
 from app.application.dto.conversation_event_dto import ConversationEvent
@@ -15,10 +15,13 @@ from app.application.dto.copilot_api_dto import (
     MessageResponse,
     SendMessageRequest,
 )
+from app.application.dto.research_task_dto import ConfirmResearchTaskRequest
 from app.application.exceptions import (
     ConversationNotFoundError,
     ProjectArchivedError,
     ProjectNotFoundError,
+    ResearchTaskConflictError,
+    ResearchTaskNotFoundError,
 )
 from app.application.services.conversation_service import ConversationService
 from app.infrastructure.events.conversation_event_bus import ConversationEventBus, get_conversation_event_bus
@@ -100,6 +103,35 @@ async def iter_conversation_sse_events(
             "X-Accel-Buffering": "no",
         },
     )
+
+
+@router.post(
+    "/{conversation_id}/research-tasks/{research_task_id}/confirm",
+    response_model=ConversationTurnResponse,
+)
+async def confirm_research_task(
+    conversation_id: str,
+    research_task_id: str,
+    body: ConfirmResearchTaskRequest = Body(default_factory=ConfirmResearchTaskRequest),
+    service: ConversationService = Depends(get_conversation_service),
+) -> ConversationTurnResponse:
+    try:
+        result = await service.confirm_research_task(
+            conversation_id,
+            research_task_id,
+            patch=body,
+        )
+        return to_turn_response(result)
+    except ConversationNotFoundError:
+        raise HTTPException(status_code=404, detail="会话不存在")
+    except ProjectNotFoundError:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    except ProjectArchivedError:
+        raise HTTPException(status_code=409, detail="项目已归档")
+    except ResearchTaskNotFoundError:
+        raise HTTPException(status_code=404, detail="待确认的研究任务不存在或已失效")
+    except ResearchTaskConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc) or "研究任务无法确认")
 
 
 @router.get("/{conversation_id}/stream")

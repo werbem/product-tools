@@ -38,6 +38,10 @@ def build_collection_markdown(state: dict[str, Any]) -> str:
         f"共检索 **{sources_total}** 路数据源（成功 {sources_ok} 路），"
         f"整理 **{len(evidence_items)}** 条有效信息。"
     )
+    if meta.get("stale_fallback_used") or quality.get("stale_fallback_used"):
+        lines.append(
+            "> **时效说明**：当前条目因超出默认时效窗口而降级保留，时效性较低，请谨慎引用。"
+        )
     lines.append("")
 
     warnings = list(meta.get("warnings") or []) + list(quality.get("missing_data_warnings") or [])

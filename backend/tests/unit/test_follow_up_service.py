@@ -64,6 +64,57 @@ class TestFollowUpRouter:
         assert d.workflow_type == "follow_up"
         assert d.reason == "follow_up_with_prior_context"
 
+    def test_follow_up_based_on_this_info_not_deep(self) -> None:
+        """「基于这个信息…下一步该做什么」must not LegacyBridge to CA."""
+        raw = "基于这个信息，如果我是产品运营，我下一步应该做什么，推进用户体验和稳固产品壁垒？"
+        intent = _intent(
+            company="滴滴出行",
+            competitors=["高德打车", "曹操出行"],
+            product="滴滴打车",
+            raw=raw,
+        )
+        d = self.router.route(
+            intent,
+            raw,
+            ConversationRoutingContext(has_prior_analysis=True),
+        )
+        assert d.workflow_type == "follow_up"
+        assert d.reason == "follow_up_with_prior_context"
+        assert FollowUpService.should_upgrade(raw) is False
+
+    def test_ops_advice_without_deixis_is_follow_up(self) -> None:
+        """No「基于刚才」— role/next-step advice with prior must not open Deep."""
+        raw = "如果我是产品运营，我下一步应该做什么，推进用户体验和稳固产品壁垒？"
+        intent = _intent(
+            company="滴滴出行",
+            competitors=["滴滴", "高德打车", "曹操出行"],
+            product="滴滴打车",
+            raw=raw,
+        )
+        d = self.router.route(
+            intent,
+            raw,
+            ConversationRoutingContext(has_prior_analysis=True),
+        )
+        assert d.workflow_type == "follow_up"
+        assert d.reason == "follow_up_advice_with_prior_context"
+        assert FollowUpService.should_upgrade(raw) is False
+
+    def test_explicit_ca_with_prior_still_deep(self) -> None:
+        raw = "帮我做滴滴出行和曹操出行的竞品分析报告"
+        intent = _intent(
+            company="滴滴出行",
+            competitors=["曹操出行"],
+            product="滴滴打车",
+            raw=raw,
+        )
+        d = self.router.route(
+            intent,
+            raw,
+            ConversationRoutingContext(has_prior_analysis=True),
+        )
+        assert d.workflow_type == "competitive_analysis"
+
     def test_follow_up_without_prior(self) -> None:
         raw = "基于刚才结果看定价"
         d = self.router.route(
@@ -203,6 +254,8 @@ def conv_env(tmp_path: Path, monkeypatch):
             ),
         ),
     )
+    # Isolate from host APP_DATA_DIR busy tasks (live uvicorn) during unit tests.
+    monkeypatch.setattr(svc, "_resolve_long_task_busy", lambda _project_id: None)
     return svc, project_service, intent_service, deep, collect, message_store
 
 
@@ -250,6 +303,10 @@ class TestConversationFollowUpDispatch:
         raw = "继续，把会员体系也对比一下并出完整报告"
         intent_service.understand = AsyncMock(return_value=_intent(raw=raw))
         result = asyncio.run(svc.process_user_message(conversation.id, raw, analysis_mode="full"))
+        assert result.status == "awaiting_confirmation"
+        deep.launch.assert_not_awaited()
+        task_id = result.assistant_message.metadata["research_task"]["id"]
+        result = asyncio.run(svc.confirm_research_task(conversation.id, task_id))
         assert result.status == "analysis_started"
         assert result.task_id == "task-deep"
         deep.launch.assert_awaited_once()

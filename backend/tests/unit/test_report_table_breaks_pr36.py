@@ -40,6 +40,27 @@ class TestNormalizeTableBreaks:
         assert ReportAgent.normalize_table_breaks(None) == ""  # type: ignore[arg-type]
 
 
+class TestStripPartyRoleLabels:
+    def test_strips_wofang_suffix_in_tables(self):
+        md = "| 维度 | 抖音（我方） | 快手 |\n|------|------|------|\n"
+        out = ReportAgent.strip_party_role_labels(md)
+        assert "（我方）" not in out
+        assert "| 抖音 |" in out or "抖音 |" in out
+
+    def test_strips_fenxifang_and_ascii(self):
+        md = "列：飞猪（分析方） vs 美团(竞品)"
+        out = ReportAgent.strip_party_role_labels(md)
+        assert "（分析方）" not in out
+        assert "(竞品)" not in out
+        assert "飞猪" in out and "美团" in out
+
+    def test_prepare_markdown_chains_strip(self):
+        md = "| 抖音（我方） | A<br>B |"
+        out = ReportAgent._prepare_markdown(md)
+        assert "（我方）" not in out
+        assert "<br" not in out.lower()
+
+
 class TestReportPromptNoBr:
     def test_system_prompt_forbids_br(self):
         assert "禁止输出 HTML" in SYSTEM_PROMPT

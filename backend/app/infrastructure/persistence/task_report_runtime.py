@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 from app.infrastructure.persistence.file_store import load_reports, load_tasks, save_reports, save_tasks
 
 _tasks: dict[str, dict[str, Any]] = load_tasks()
 _reports: dict[str, dict[str, Any]] = load_reports()
+
+_TERMINAL_STATUSES = frozenset({"completed", "failed", "cancelled"})
 
 
 def get_tasks() -> dict[str, dict[str, Any]]:
@@ -24,6 +27,70 @@ def persist_tasks() -> None:
 
 def persist_reports() -> None:
     save_reports(dict(_reports))
+
+
+def mark_task_terminal(
+    task_id: str,
+    *,
+    status: str = "cancelled",
+    error: str | None = None,
+) -> dict[str, Any] | None:
+    """Mark a task terminal in persistence (idempotent if already terminal)."""
+    entry = _tasks.get(task_id)
+    if not entry or not isinstance(entry, dict):
+        return None
+
+    current = str(entry.get("status") or "").lower().strip()
+    if current in _TERMINAL_STATUSES:
+        return entry
+
+    terminal = status if status in _TERMINAL_STATUSES else "cancelled"
+    now = datetime.utcnow().isoformat()
+    entry["status"] = terminal
+    if error:
+        entry["error"] = error
+    state = entry.get("state")
+    if not isinstance(state, dict):
+        state = {}
+        entry["state"] = state
+    state["updated_at"] = now
+    if terminal in {"failed", "cancelled"}:
+        state["current_phase"] = "failed"
+        if error:
+            state["error_info"] = error
+        elif not state.get("error_info"):
+            state["error_info"] = terminal
+    persist_tasks()
+
+    try:
+        from app.infrastructure.workflow.stream import push_done
+
+        push_done(task_id, status="failed" if terminal != "completed" else "completed")
+    except Exception:
+        pass
+
+    return entry
+
+
+def fail_orphaned_incomplete_tasks(*, reason: str = "server_restart") -> list[str]:
+    """Fail incomplete long tasks left after process death (no in-process runner)."""
+    failed: list[str] = []
+    for task_id, entry in list(_tasks.items()):
+        if not isinstance(entry, dict):
+            continue
+        status = str(entry.get("status") or "").lower().strip()
+        if status in _TERMINAL_STATUSES:
+            continue
+        # Only touch entries that look like long workflows / have state.
+        if not entry.get("state") and status not in {"", "pending", "running"}:
+            continue
+        mark_task_terminal(
+            task_id,
+            status="failed",
+            error=reason,
+        )
+        failed.append(task_id)
+    return failed
 
 
 def touch_task_progress(

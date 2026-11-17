@@ -15,6 +15,7 @@ TurnStatus = Literal[
     "needs_clarification",
     "unsupported",
     "analysis_started",
+    "awaiting_confirmation",
     "out_of_scope",
     "unsupported_workflow",
     "query_answered",

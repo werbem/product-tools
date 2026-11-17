@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
-SYSTEM_PROMPT = """你是一名严谨的竞品差距分析师。根据采集到的证据，对比我方产品与竞品的差距。
+SYSTEM_PROMPT = """你是一名严谨的竞品差距分析师。根据采集到的证据，对比分析方产品与竞品的差距。
 
 核心原则：
 1. 每个结论必须有证据支撑——引用具体的 Evidence ID
@@ -20,7 +20,7 @@ SYSTEM_PROMPT = """你是一名严谨的竞品差距分析师。根据采集到�
 - 如果一个差距结论只能依赖 historical 证据，必须在 business_impact 或 confidence 中标注「时效风险」
 
 differences 和 capability_gaps 必须是对象数组：
-{dimension:growth,title:差异标题,our_status:我方状态,competitor_status:竞品状态,evidence_refs:[E001],cluster_refs:[c1],user_impact:对用户影响,business_impact:对业务影响,confidence:high}
+{dimension:growth,title:差异标题,our_status:分析方状态,competitor_status:竞品状态,evidence_refs:[E001],cluster_refs:[c1],user_impact:对用户影响,business_impact:对业务影响,confidence:high}
 
 dimensions_skipped 必须是对象数组：[{dimension:ux,reason:无证据}]
 """
@@ -51,7 +51,7 @@ class LLMCompareOutput(BaseModel):
 def build_compare_prompt(our_company, competitor_company, product, evidence_json, analysis_scope):
     scope_str = ", ".join(analysis_scope) if analysis_scope else "全维度"
     return f"""## 分析对象
-- 我方: {our_company} / {product}
+- 分析方: {our_company} / {product}
 - 竞品: {competitor_company} / {product}
 - 分析范围: {scope_str}
 
@@ -95,7 +95,7 @@ def build_compare_prompt_compact(
             "但仍须基于现有证据输出结构化对比，勿留空。\n"
         )
     return f"""## 分析对象
-- 我方: {our_company} / {product}
+- 分析方: {our_company} / {product}
 - 竞品: {competitor_company} / {product}
 - 分析范围: {scope_str}
 {note}
@@ -124,7 +124,7 @@ def build_compare_repair_prompt(broken_text: str) -> str:
 def build_cluster_compare_prompt(our_company, competitor_company, product, clusters_json, evidence_json, analysis_scope):
     scope_str = ", ".join(analysis_scope) if analysis_scope else "全维度"
     return f'''## 分析对象
-- 我方: {our_company} / {product}
+- 分析方: {our_company} / {product}
 - 竞品: {competitor_company} / {product}
 - 分析范围: {scope_str}
 

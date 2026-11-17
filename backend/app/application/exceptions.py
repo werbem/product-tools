@@ -27,3 +27,11 @@ class ConversationProjectMismatchError(AppError):
 
 class KnowledgeNoteNotFoundError(AppError):
     pass
+
+
+class ResearchTaskNotFoundError(AppError):
+    pass
+
+
+class ResearchTaskConflictError(AppError):
+    pass

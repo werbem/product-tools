@@ -39,3 +39,11 @@ logs/
 
 # Local docs (not for repo)
 docs/competitive-intelligence-agent-architecture-interview-guide.md
+
+# Cursor local
+.cursor/
+
+# Root orchestration deps
+/node_modules/
+
+*.tsbuildinfo

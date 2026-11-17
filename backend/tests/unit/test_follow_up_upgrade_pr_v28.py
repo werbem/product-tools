@@ -232,6 +232,10 @@ class TestFollowUpUpgradeE2:
             svc.process_user_message(conversation.id, raw, analysis_mode="full"),
         )
 
+        assert result.status == "awaiting_confirmation"
+        deep.launch.assert_not_awaited()
+        task_id = result.assistant_message.metadata["research_task"]["id"]
+        result = asyncio.run(svc.confirm_research_task(conversation.id, task_id))
         assert result.status == "analysis_started"
         assert result.task_id == "task-deep-upgrade"
         deep.launch.assert_awaited_once()
@@ -300,6 +304,9 @@ class TestFollowUpUpgradeE2:
         raw = "对比飞猪和美团酒店，给出产品策略建议"
         intent_service.understand = AsyncMock(return_value=_intent(raw=raw))
         result = asyncio.run(svc.process_user_message(conversation.id, raw, analysis_mode="fast"))
+        assert result.status == "awaiting_confirmation"
+        task_id = result.assistant_message.metadata["research_task"]["id"]
+        result = asyncio.run(svc.confirm_research_task(conversation.id, task_id))
         assert result.status == "analysis_started"
         snap = (result.assistant_message.metadata or {}).get("validated_input") or {}
         assert snap.get("our_company") == "飞猪"

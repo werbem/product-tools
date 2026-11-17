@@ -52,10 +52,19 @@ class CollectionWorkflowLauncher:
         self._artifact_service = artifact_service
         self._memory_writer = memory_writer
         self._running: set[asyncio.Task[Any]] = set()
+        self._running_by_id: dict[str, asyncio.Task[Any]] = {}
 
     def has_in_process_tasks(self) -> bool:
         """True while a background Collection asyncio.Task is still running (this worker)."""
         return bool(self._running)
+
+    def cancel_running_task(self, task_id: str) -> bool:
+        """Cancel in-process asyncio runner for task_id if present."""
+        bg = self._running_by_id.get(task_id)
+        if bg is None or bg.done():
+            return False
+        bg.cancel()
+        return True
 
     async def launch(
         self,
@@ -106,7 +115,13 @@ class CollectionWorkflowLauncher:
             self._run_collection(task_id_str, request, collect_graph),
         )
         self._running.add(bg)
-        bg.add_done_callback(lambda t: self._running.discard(t))
+        self._running_by_id[task_id_str] = bg
+
+        def _cleanup(t: asyncio.Task[Any], tid: str = task_id_str) -> None:
+            self._running.discard(t)
+            self._running_by_id.pop(tid, None)
+
+        bg.add_done_callback(_cleanup)
 
         return WorkflowLaunchResult(task_id=task_id_str, report_id=task_id_str, status="pending")
 
@@ -202,6 +217,12 @@ class CollectionWorkflowLauncher:
                 entry["state"]["error_info"] = error_msg
             await self._publish_analysis_failed(conversation_id, task_id_str, error_msg)
         except asyncio.CancelledError:
+            entry["status"] = "cancelled"
+            entry["error"] = "cancelled_by_user"
+            if entry.get("state"):
+                entry["state"]["current_phase"] = "failed"
+                entry["state"]["error_info"] = "cancelled_by_user"
+            await self._publish_analysis_failed(conversation_id, task_id_str, "cancelled_by_user")
             raise
         except Exception as exc:
             error_msg = f"{type(exc).__name__}: {exc}"

@@ -97,6 +97,14 @@ async def prepare_collection_output(state: WorkflowState) -> dict[str, Any]:
     sources_attempted = int(quality.get("sources_attempted", 0) or 0)
     sources_succeeded = int(quality.get("sources_succeeded", 0) or 0)
 
+    if quality.get("stale_fallback_used") and not any("时效提示" in w for w in warnings):
+        cutoff = str(quality.get("evidence_cutoff_date") or "").strip() or "默认时效窗口"
+        count = int(quality.get("stale_fallback_count") or len(evidence_items) or 0)
+        if count > 0:
+            from app.infrastructure.tools.evidence_freshness import stale_fallback_warning
+
+            warnings.append(stale_fallback_warning(cutoff=cutoff, count=count))
+
     if not evidence_items:
         warnings.append("no evidence collected")
     elif sources_succeeded < sources_attempted:
@@ -110,6 +118,9 @@ async def prepare_collection_output(state: WorkflowState) -> dict[str, Any]:
             "sources_attempted": sources_attempted,
             "sources_succeeded": sources_succeeded,
             "warnings": warnings,
+            "stale_fallback_used": bool(quality.get("stale_fallback_used")),
+            "stale_fallback_count": int(quality.get("stale_fallback_count") or 0),
+            "evidence_cutoff_date": str(quality.get("evidence_cutoff_date") or ""),
         },
         "current_phase": "collection_processed",
         "updated_at": datetime.utcnow().isoformat(),

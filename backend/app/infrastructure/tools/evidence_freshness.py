@@ -13,11 +13,15 @@ import httpx
 from app.infrastructure.tools.evidence_date import (
     _SEMANTIC_PUBLISH,
     compute_temporal_confidence,
+    extract_date_from_text,
     normalize_existing_date,
 )
 
 _DATE_SOURCE_PAGE_META = "page_meta"
+_DATE_SOURCE_PAGE_BODY = "page_body"
 _MAX_BODY_BYTES = 96 * 1024
+# After meta miss: scan stripped text prefix only (no full-page NLP)
+_BODY_TEXT_SCAN_CHARS = 4000
 
 _META_PATTERNS = [
     re.compile(
@@ -108,8 +112,8 @@ def _set_item_date_meta(
         date_semantic=date_semantic,
         has_date=True,
     )
-    # page_meta → at least medium
-    if date_source == _DATE_SOURCE_PAGE_META and conf == "low":
+    # page_meta / page_body → at least medium
+    if date_source in (_DATE_SOURCE_PAGE_META, _DATE_SOURCE_PAGE_BODY) and conf == "low":
         conf = "medium"
     raw["date_source"] = date_source
     raw["date_semantic"] = date_semantic
@@ -128,14 +132,78 @@ def _set_item_date_meta(
             item["quality_score"] = qs
 
 
+def _mark_stale_fallback_item(item: Any) -> None:
+    """Tag an expired item restored after an empty in-window set."""
+    raw = _dget(item, "raw_data", None)
+    if not isinstance(raw, dict):
+        raw = {}
+    else:
+        raw = dict(raw)
+    raw["stale_fallback"] = True
+    raw["freshness_note"] = "超出默认时效窗口，降级保留"
+    if not raw.get("temporal_confidence") or raw.get("temporal_confidence") != "low":
+        raw["temporal_confidence"] = "low"
+    if hasattr(item, "raw_data"):
+        item.raw_data = raw
+    elif isinstance(item, dict):
+        item["raw_data"] = raw
+
+    qs = _dget(item, "quality_score", None)
+    if isinstance(qs, dict) or qs is None:
+        qs = dict(qs or {})
+        qs["temporal_confidence"] = "low"
+        prev_fresh = qs.get("freshness_score")
+        try:
+            prev_f = float(prev_fresh) if prev_fresh is not None else 0.5
+        except (TypeError, ValueError):
+            prev_f = 0.5
+        qs["freshness_score"] = min(prev_f, 0.25)
+        if hasattr(item, "quality_score"):
+            item.quality_score = qs
+        elif isinstance(item, dict):
+            item["quality_score"] = qs
+
+    conf = str(_dget(item, "confidence", "") or "").strip().lower()
+    if conf in ("", "high", "medium"):
+        if hasattr(item, "confidence"):
+            item.confidence = "low"
+        elif isinstance(item, dict):
+            item["confidence"] = "low"
+
+
+def _sort_expired_newest_first(items: list[Any]) -> list[Any]:
+    def _key(it: Any) -> tuple[int, str]:
+        d = _parse_item_date(it)
+        if d is None:
+            return (0, "")
+        return (1, d.isoformat())
+
+    return sorted(items, key=_key, reverse=True)
+
+
+def stale_fallback_warning(*, cutoff: str, count: int) -> str:
+    """User-facing note when only out-of-window evidence was kept."""
+    return (
+        f"时效提示：检索结果均早于 {cutoff}，已降级保留 {count} 条较旧公开信息，"
+        f"时效性较低，请谨慎引用。"
+    )
+
+
 def apply_evidence_age_window(
     items: list[Any] | None,
     *,
     max_age_months: int = 48,
-    max_undated_evidence_items: int = 5,
+    max_undated_evidence_items: int = 3,
     today: date | None = None,
+    stale_fallback_when_empty: bool = True,
+    max_stale_fallback_items: int = 5,
 ) -> tuple[list[Any], dict[str, Any]]:
-    """Filter main evidence list to in-window dated + capped undated."""
+    """Filter main evidence list to in-window dated + capped undated.
+
+    When every dated item is out-of-window and nothing else remains, optionally
+    restore the newest expired items (stale fallback) so collection/research
+    is not empty — callers should surface a low-freshness warning.
+    """
     cutoff = evidence_cutoff_date(max_age_months, today=today)
     items = list(items or [])
     kept_dated: list[Any] = []
@@ -158,14 +226,38 @@ def apply_evidence_age_window(
     undated_dropped = undated[undated_cap:]
 
     main = kept_dated + undated_kept
+    stale_fallback_used = False
+    stale_fallback_count = 0
+    expired_filtered = len(expired)
+
+    if (
+        stale_fallback_when_empty
+        and not main
+        and expired
+    ):
+        stale_cap = max(0, int(max_stale_fallback_items))
+        restored = _sort_expired_newest_first(expired)[:stale_cap]
+        for item in restored:
+            _mark_stale_fallback_item(item)
+        main = restored
+        stale_fallback_used = bool(restored)
+        stale_fallback_count = len(restored)
+
     # Stable re-id left to caller
     meta = {
         "evidence_cutoff_date": cutoff.isoformat(),
-        "filtered_expired_count": len(expired),
+        "filtered_expired_count": expired_filtered,
         "undated_kept_count": len(undated_kept),
         "undated_dropped_count": len(undated_dropped),
         "in_window_dated_count": len(kept_dated),
+        "stale_fallback_used": stale_fallback_used,
+        "stale_fallback_count": stale_fallback_count,
     }
+    if stale_fallback_used:
+        meta["stale_fallback_warning"] = stale_fallback_warning(
+            cutoff=cutoff.isoformat(),
+            count=stale_fallback_count,
+        )
     return main, meta
 
 
@@ -185,23 +277,42 @@ def looks_like_article_url(url: str) -> bool:
     return path.count("/") >= 2 and len(path) > 8
 
 
-def extract_published_date_from_html(html: str) -> str | None:
+def _strip_html_to_text(html: str) -> str:
+    """Lightweight tag strip for body-date scan (not a full HTML parser)."""
+    text = re.sub(r"(?is)<script[^>]*>.*?</script>", " ", html)
+    text = re.sub(r"(?is)<style[^>]*>.*?</style>", " ", text)
+    text = re.sub(r"(?s)<[^>]+>", " ", text)
+    text = re.sub(r"&\w+;", " ", text)
+    text = re.sub(r"\s+", " ", text)
+    return text.strip()
+
+
+def extract_published_date_from_html(html: str) -> tuple[str | None, str]:
+    """Return (YYYY-MM-DD, date_source) from meta/time first, then body prefix.
+
+    date_source is ``page_meta`` or ``page_body``. Empty html → (None, "").
+    """
     if not html:
-        return None
+        return None, ""
     for pat in _META_PATTERNS:
         m = pat.search(html)
         if not m:
             continue
         parsed = normalize_existing_date(m.group(1)) or None
         if parsed:
-            return parsed
-        # ISO prefix
+            return parsed, _DATE_SOURCE_PAGE_META
         raw = (m.group(1) or "").strip()
         if len(raw) >= 10:
             parsed = normalize_existing_date(raw[:10])
             if parsed:
-                return parsed
-    return None
+                return parsed, _DATE_SOURCE_PAGE_META
+    # Body prefix: Chinese / ISO dates in first N chars of stripped text
+    body = _strip_html_to_text(html)[:_BODY_TEXT_SCAN_CHARS]
+    if body:
+        parsed = extract_date_from_text(body)
+        if parsed:
+            return parsed, _DATE_SOURCE_PAGE_BODY
+    return None, ""
 
 
 async def _fetch_html_prefix(url: str, timeout_s: float) -> str:
@@ -264,12 +375,12 @@ async def enrich_missing_dates_from_page_meta(
         try:
             async with sem:
                 html = await _fetch_html_prefix(url, float(timeout_s))
-            parsed = extract_published_date_from_html(html)
-            if parsed:
+            parsed, source = extract_published_date_from_html(html)
+            if parsed and source:
                 _set_item_date_meta(
                     item,
                     date_value=parsed,
-                    date_source=_DATE_SOURCE_PAGE_META,
+                    date_source=source,
                     date_semantic=_SEMANTIC_PUBLISH,
                 )
                 stats["succeeded"] += 1

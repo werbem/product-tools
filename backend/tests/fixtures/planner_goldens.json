@@ -1,0 +1,219 @@
+{
+  "version": 1,
+  "description": "DecisionPlanner goldens (Phase 4). Dual +/- required for deep vs follow_up.",
+  "cases": [
+    {
+      "id": "plan_oos_weather",
+      "message": "今天天气怎么样",
+      "has_prior": false,
+      "expect_execution_mode": "oos",
+      "expect_workflow_type": "out_of_scope",
+      "expect_clarification": false,
+      "critical": true
+    },
+    {
+      "id": "plan_follow_up_ops_advice",
+      "message": "如果我是产品运营，我下一步应该做什么，推进用户体验和稳固产品壁垒？",
+      "has_prior": true,
+      "entities": {
+        "company": "滴滴出行",
+        "product": "滴滴打车",
+        "competitors": ["高德打车", "曹操出行"]
+      },
+      "expect_execution_mode": "follow_up",
+      "expect_workflow_type": "follow_up",
+      "expect_reason_contains": "short_answer",
+      "forbid_deep": true,
+      "pair_with": "plan_analyze_explicit_ca_with_prior",
+      "critical": true,
+      "notes": "正例：运营建议追问 → follow_up，禁止 Deep"
+    },
+    {
+      "id": "plan_analyze_explicit_ca_with_prior",
+      "message": "帮我做滴滴出行和曹操出行的竞品分析报告",
+      "has_prior": true,
+      "entities": {
+        "company": "滴滴出行",
+        "product": "滴滴打车",
+        "competitors": ["曹操出行"]
+      },
+      "expect_execution_mode": "deep_fast",
+      "expect_workflow_type": "competitive_analysis",
+      "forbid_deep": false,
+      "pair_with": "plan_follow_up_ops_advice",
+      "critical": true,
+      "notes": "反例：有 prior 仍显式 CA → deep"
+    },
+    {
+      "id": "plan_upgrade_full_report",
+      "message": "继续，出一份完整竞品分析报告",
+      "has_prior": true,
+      "entities": {
+        "company": "龙腾出行",
+        "product": "机场场景",
+        "competitors": ["悦途"]
+      },
+      "expect_execution_mode": "deep_full",
+      "expect_workflow_type": "competitive_analysis",
+      "expect_reason_contains": "upgrade",
+      "critical": true
+    },
+    {
+      "id": "plan_collect_research",
+      "message": "帮我收集字节跳动抖音近期商业发展信息",
+      "has_prior": false,
+      "entities": {
+        "company": "字节跳动",
+        "product": "抖音",
+        "competitors": []
+      },
+      "expect_execution_mode": "research",
+      "expect_workflow_type": "research",
+      "forbid_deep": true,
+      "critical": true
+    },
+    {
+      "id": "plan_ask_listing",
+      "message": "抖音都有哪些竞品？",
+      "has_prior": false,
+      "entities": {
+        "company": "抖音",
+        "product": "短视频",
+        "competitors": ["快手", "小红书"]
+      },
+      "expect_execution_mode": "short_answer",
+      "expect_workflow_type": "simple_question",
+      "forbid_deep": true,
+      "pair_with": "plan_listing_then_analyze",
+      "critical": true,
+      "notes": "反例：仅 listing → short_answer，禁止 multi_step/Deep"
+    },
+    {
+      "id": "plan_listing_then_analyze",
+      "message": "抖音都有哪些竞品？帮我完成抖音的竞品分析报告",
+      "has_prior": false,
+      "entities": {
+        "company": "抖音",
+        "product": "短视频",
+        "competitors": []
+      },
+      "expect_execution_mode": "multi_step",
+      "expect_workflow_type": "competitive_analysis",
+      "expect_reason_contains": "listing_then_analyze",
+      "expect_step_ops": ["list_competitors", "deep_analysis"],
+      "forbid_deep": false,
+      "pair_with": "plan_ask_listing",
+      "critical": true,
+      "notes": "正例：listing→analyze PlanStep 链"
+    },
+    {
+      "id": "plan_collect_then_advise",
+      "message": "帮我收集字节跳动抖音近期信息并给出运营建议",
+      "has_prior": false,
+      "entities": {
+        "company": "字节跳动",
+        "product": "抖音",
+        "competitors": []
+      },
+      "expect_execution_mode": "multi_step",
+      "expect_workflow_type": "research",
+      "expect_reason_contains": "collect_then_advise",
+      "expect_step_ops": ["intelligence_collection", "follow_up_short_answer"],
+      "forbid_deep": true,
+      "critical": true
+    },
+    {
+      "id": "plan_collect_then_analyze",
+      "message": "帮我收集滴滴出行资料并做竞品分析",
+      "has_prior": false,
+      "entities": {
+        "company": "滴滴出行",
+        "product": "滴滴打车",
+        "competitors": ["曹操出行"]
+      },
+      "expect_execution_mode": "multi_step",
+      "expect_workflow_type": "competitive_analysis",
+      "expect_reason_contains": "collect_then_analyze",
+      "expect_step_ops": ["intelligence_collection", "deep_analysis"],
+      "forbid_deep": false,
+      "critical": true
+    },
+    {
+      "id": "plan_collect_nested_materials_not_multi",
+      "message": "帮我收集竞品分析报告相关资料",
+      "has_prior": false,
+      "entities": {
+        "company": "字节跳动",
+        "product": "抖音",
+        "competitors": []
+      },
+      "expect_execution_mode": "research",
+      "expect_workflow_type": "research",
+      "forbid_deep": true,
+      "critical": true,
+      "notes": "嵌套「报告」作收集对象 → 单步 research，非 multi_step"
+    },
+    {
+      "id": "plan_ask_dynamics",
+      "message": "美团酒店最近有什么变化？",
+      "has_prior": false,
+      "entities": {
+        "company": "美团",
+        "product": "酒店",
+        "competitors": []
+      },
+      "expect_execution_mode": "short_answer",
+      "expect_workflow_type": "information_query",
+      "forbid_deep": true,
+      "critical": true
+    },
+    {
+      "id": "plan_analyze_missing_company_clarify",
+      "message": "帮我做竞品分析报告",
+      "has_prior": false,
+      "force_intent": {
+        "task_family": "analyze",
+        "discourse": "new",
+        "ask_subtype": null,
+        "confidence": 0.7
+      },
+      "entities": {
+        "company": null,
+        "product": null,
+        "competitors": []
+      },
+      "expect_execution_mode": "clarify",
+      "expect_clarification": true,
+      "forbid_deep": true,
+      "critical": true
+    },
+    {
+      "id": "plan_ambiguous_no_default_deep",
+      "message": "随便聊聊吧",
+      "has_prior": false,
+      "entities": {
+        "company": null,
+        "product": null,
+        "competitors": []
+      },
+      "expect_execution_mode": "short_answer",
+      "forbid_deep": true,
+      "critical": true,
+      "notes": "无信号不得默认 Deep"
+    },
+    {
+      "id": "plan_follow_up_deixis_pricing",
+      "message": "基于刚才结果，定价上该怎么做？",
+      "has_prior": true,
+      "entities": {
+        "company": "飞猪",
+        "product": "酒店",
+        "competitors": ["美团"]
+      },
+      "expect_execution_mode": "follow_up",
+      "expect_workflow_type": "follow_up",
+      "forbid_deep": true,
+      "critical": true
+    }
+  ]
+}

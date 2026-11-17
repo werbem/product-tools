@@ -128,24 +128,83 @@ export function optimisticThinkingMessage(conversationId: string): ConversationM
     id: `optimistic-thinking-${conversationId}`,
     conversation_id: conversationId,
     role: "assistant",
-    content: "正在理解您的意图…",
+    content: "正在识别意图…",
     created_at: new Date().toISOString(),
     task_id: null,
     metadata: { message_type: "thinking", optimistic: true },
   };
 }
 
+function isOptimisticThinking(message: ConversationMessage): boolean {
+  return Boolean(
+    message.metadata?.optimistic && message.metadata?.message_type === "thinking",
+  );
+}
+
+function hasRealAssistant(messages: ConversationMessage[]): boolean {
+  return messages.some(
+    (m) => m.role === "assistant" && !m.metadata?.optimistic,
+  );
+}
+
+/**
+ * Merge server messages into local state.
+ * Keeps the optimistic「正在识别意图…」bubble until a real assistant reply arrives —
+ * otherwise load/refresh after the user message is persisted wipes the status for ~Intent LLM latency.
+ */
 export function mergeConversationMessages(
   prev: ConversationMessage[],
   incoming: ConversationMessage[],
 ): ConversationMessage[] {
+  const preservedThinking = prev.filter(isOptimisticThinking);
   const withoutOptimistic = prev.filter((m) => !m.metadata?.optimistic);
   const map = new Map<string, ConversationMessage>();
   for (const message of withoutOptimistic) {
     map.set(message.id, message);
   }
   for (const message of incoming) {
+    if (message.metadata?.optimistic) {
+      map.set(message.id, message);
+      continue;
+    }
     map.set(message.id, message);
   }
-  return [...map.values()].sort((a, b) => a.created_at.localeCompare(b.created_at));
+  let merged = [...map.values()].sort((a, b) => a.created_at.localeCompare(b.created_at));
+
+  if (!hasRealAssistant(merged)) {
+    const thinking =
+      preservedThinking[preservedThinking.length - 1]
+      ?? incoming.filter(isOptimisticThinking).slice(-1)[0];
+    if (thinking && !merged.some((m) => m.id === thinking.id || isOptimisticThinking(m))) {
+      merged = [...merged, thinking];
+    }
+  }
+
+  return merged;
+}
+
+/** Ensure thinking status is visible while a send is in flight / pending. */
+export function ensureThinkingWhilePending(
+  messages: ConversationMessage[],
+  conversationId: string,
+  pending: PendingConversationMessage | null,
+): ConversationMessage[] {
+  if (!pending) return messages;
+  if (hasRealAssistant(messages)) {
+    return messages.filter((m) => !isOptimisticThinking(m));
+  }
+  const hasUser = messages.some(
+    (m) =>
+      m.role === "user"
+      && (m.content || "").trim() === pending.content.trim(),
+  );
+  const withUser = hasUser
+    ? messages
+    : mergeConversationMessages(messages, [
+        optimisticUserMessage(conversationId, pending.content),
+      ]);
+  if (withUser.some(isOptimisticThinking)) return withUser;
+  return mergeConversationMessages(withUser, [
+    optimisticThinkingMessage(conversationId),
+  ]);
 }

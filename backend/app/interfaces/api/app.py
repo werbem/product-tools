@@ -47,6 +47,23 @@ async def lifespan(app: FastAPI) -> None:
     # Database
     await db_manager.initialize()
 
+    # After restart, in-process asyncio runners are gone but tasks.json may still
+    # say pending — fail orphans so busy-gate and UI are not stuck forever.
+    try:
+        from app.infrastructure.persistence import task_report_runtime
+
+        orphaned = task_report_runtime.fail_orphaned_incomplete_tasks(
+            reason="server_restart: background runner lost",
+        )
+        if orphaned:
+            logger.warning(
+                "Marked %d orphaned incomplete task(s) failed after restart: %s",
+                len(orphaned),
+                ", ".join(orphaned[:5]) + ("…" if len(orphaned) > 5 else ""),
+            )
+    except Exception:
+        logger.exception("Failed to reclaim orphaned tasks on startup")
+
     logger.info(
         "🚀 %s v%s started (env=%s, llm=%s, mock=%s)",
         settings.app_name, "0.1.0",

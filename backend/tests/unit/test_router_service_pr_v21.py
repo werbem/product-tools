@@ -156,6 +156,11 @@ def conv_env(tmp_path: Path, monkeypatch):
         "app.infrastructure.persistence.copilot.stores.DATA_DIR",
         persistence,
     )
+    from app.infrastructure.persistence import task_report_runtime
+
+    monkeypatch.setattr(task_report_runtime, "_tasks", {})
+    monkeypatch.setattr(task_report_runtime, "persist_tasks", lambda: None)
+
     project_store = ProjectStore()
     conversation_store = ConversationStore()
     message_store = MessageStore()
@@ -169,6 +174,8 @@ def conv_env(tmp_path: Path, monkeypatch):
             report_id="rep-deep",
         ),
     )
+    deep._running = set()
+    deep.has_in_process_tasks = MagicMock(return_value=False)
     collect = AsyncMock()
     collect.launch = AsyncMock(
         return_value=WorkflowLaunchResult(
@@ -177,6 +184,8 @@ def conv_env(tmp_path: Path, monkeypatch):
             report_id="rep-collect",
         ),
     )
+    collect._running = set()
+    collect.has_in_process_tasks = MagicMock(return_value=False)
     svc = ConversationService(
         conversation_store=conversation_store,
         message_store=message_store,
@@ -202,6 +211,10 @@ class TestConversationRouterDispatch:
             return_value=_intent(competitors=["悦途"], raw=raw),
         )
         result = asyncio.run(svc.process_user_message(conversation.id, raw, analysis_mode="full"))
+        assert result.status == "awaiting_confirmation"
+        deep.launch.assert_not_awaited()
+        task_id = result.assistant_message.metadata["research_task"]["id"]
+        result = asyncio.run(svc.confirm_research_task(conversation.id, task_id))
         assert result.status == "analysis_started"
         assert result.task_id == "task-deep"
         assert result.routing_decision is not None
@@ -228,6 +241,10 @@ class TestConversationRouterDispatch:
             ),
         )
         result = asyncio.run(svc.process_user_message(conversation.id, raw))
+        assert result.status == "awaiting_confirmation"
+        collect.launch.assert_not_awaited()
+        task_id = result.assistant_message.metadata["research_task"]["id"]
+        result = asyncio.run(svc.confirm_research_task(conversation.id, task_id))
         assert result.status == "analysis_started"
         assert result.task_id == "task-collect"
         assert result.routing_decision.workflow_type == "research"

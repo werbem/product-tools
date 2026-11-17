@@ -59,7 +59,34 @@ async def get_report(task_id: UUID) -> ReportDetailResponse:
         if str(task_id) in _tasks:
             raise HTTPException(status_code=202, detail="报告正在生成中，请稍后重试")
         raise HTTPException(status_code=404, detail="报告不存在")
-    return ReportDetailResponse(**report)
+    return ReportDetailResponse(**_sanitize_report_party_labels(report))
+
+
+def _sanitize_report_party_labels(report: dict) -> dict:
+    """Strip leftover 「（我方）」 tags for display of older reports."""
+    from app.infrastructure.agents.report_agent import ReportAgent
+
+    out = dict(report)
+    strip = ReportAgent.strip_party_role_labels
+    if isinstance(out.get("markdown"), str):
+        out["markdown"] = strip(out["markdown"])
+    if isinstance(out.get("html"), str):
+        out["html"] = strip(out["html"])
+    sections = out.get("sections")
+    if isinstance(sections, list):
+        cleaned = []
+        for sec in sections:
+            if not isinstance(sec, dict):
+                cleaned.append(sec)
+                continue
+            item = dict(sec)
+            if isinstance(item.get("content"), str):
+                item["content"] = strip(item["content"])
+            if isinstance(item.get("title"), str):
+                item["title"] = strip(item["title"])
+            cleaned.append(item)
+        out["sections"] = cleaned
+    return out
 
 
 @router.get("/{task_id}/download")
@@ -73,6 +100,10 @@ async def download_report(task_id: UUID):
     markdown = report.get("markdown", "")
     if not markdown:
         raise HTTPException(status_code=404, detail="Word文件不存在或尚未生成")
+
+    from app.infrastructure.agents.report_agent import ReportAgent
+
+    markdown = ReportAgent.strip_party_role_labels(markdown)
 
     evidence_sources = report.get("evidence_sources") or []
     if evidence_sources:

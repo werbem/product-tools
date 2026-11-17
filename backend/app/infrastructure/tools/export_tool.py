@@ -131,7 +131,7 @@ class HTMLBuilder:
         self._parts.append(
             f"<div class='cover'>"
             f"<h1>互联网产品竞品分析报告</h1>"
-            f"<p class='meta'>我方：{our} | 竞品：{competitor} | 产品：{product}</p>"
+            f"<p class='meta'>分析方：{our} | 竞品：{competitor} | 产品：{product}</p>"
             f"<p class='meta'>生成日期：{date}</p>"
             f"</div>"
         )

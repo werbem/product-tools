@@ -27,6 +27,7 @@ from app.infrastructure.tools.research_source import (
     SourceResult,
     SourceType,
 )
+from app.application.services.intent_entities import sanitize_search_keywords
 from app.infrastructure.tools.sources.tavily_source import tavily_source
 from app.infrastructure.tools.sources.appstore_source import appstore_source
 from app.infrastructure.tools.sources.googleplay_source import googleplay_source
@@ -145,7 +146,8 @@ class SourceRouter:
             for source in sources:
                 # Build a combined query from multiple keywords for better coverage
                 if plan.keywords:
-                    kw = " ".join(plan.keywords[:5])  # Use top 5 keywords
+                    cleaned = sanitize_search_keywords(list(plan.keywords)[:8])
+                    kw = " ".join(cleaned[:5]) if cleaned else (plan.objective or "")
                 else:
                     kw = plan.objective
                 executions.append((source, kw, stype))
@@ -224,7 +226,6 @@ class SourceRouter:
     # ── Utilities ──
 
     @staticmethod
-    @staticmethod
     def _collect_keywords(plan) -> list[str]:
         """Collect all unique keywords from research_tasks (dict-safe)."""
         seen: set[str] = set()
@@ -237,12 +238,11 @@ class SourceRouter:
                 kws = task.get("keywords", []) or []
             else:
                 kws = getattr(task, "keywords", []) or []
-            for kw in kws:
+            for kw in sanitize_search_keywords(list(kws)):
                 if kw not in seen:
                     seen.add(kw)
                     result.append(kw)
         return result
-
     @staticmethod
     def deduplicate(results: list[SourceResult]) -> list[EvidenceItem]:
         seen_urls: set[str] = set()

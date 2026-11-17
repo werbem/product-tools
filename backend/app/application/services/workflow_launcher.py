@@ -62,12 +62,38 @@ def _build_report_metadata(
     generation_note = doc_meta.get("generation_note")
     raw_timeouts = doc_meta.get("segment_timeouts")
     segment_timeouts = list(raw_timeouts) if isinstance(raw_timeouts, list) else []
+    raw_retries = doc_meta.get("segment_retries")
+    segment_retries = list(raw_retries) if isinstance(raw_retries, list) else []
+    raw_ev_fb = doc_meta.get("segment_evidence_fallback")
+    segment_evidence_fallback = list(raw_ev_fb) if isinstance(raw_ev_fb, list) else []
+    budget = final_state.get("workflow_budget_meta") or {}
+    if not isinstance(budget, dict):
+        budget = {}
+
+    note = generation_note
+    if doc_meta.get("report_timeout_fallback") and not note:
+        note = "报告生成超时降级：正文为证据摘要拼装，非标准 13 章结构。"
+    if budget.get("compare_timeout") or budget.get("strategy_timeout"):
+        bits = []
+        if budget.get("compare_timeout"):
+            bits.append("对比")
+        if budget.get("strategy_timeout"):
+            bits.append("战略")
+        if doc_meta.get("report_timeout_fallback"):
+            bits.append("报告")
+        suffix = "、".join(bits) + "环节超时，输出为证据 stub 降级稿"
+        note = f"{note}（{suffix}）" if note else suffix
 
     return ReportGenerationMetadataDTO(
         generation_mode=generation_mode,
-        generation_note=generation_note,
+        generation_note=note,
         segment_timeouts=segment_timeouts,
+        segment_retries=segment_retries,
+        segment_evidence_fallback=segment_evidence_fallback,
         analysis_mode=analysis_mode,
+        report_timeout_fallback=bool(doc_meta.get("report_timeout_fallback")),
+        compare_timeout=bool(budget.get("compare_timeout")),
+        strategy_timeout=bool(budget.get("strategy_timeout")),
     )
 
 
@@ -82,10 +108,19 @@ class DeepAnalysisWorkflowLauncher:
         self._artifact_service = artifact_service
         self._memory_writer = memory_writer
         self._running: set[asyncio.Task[Any]] = set()
+        self._running_by_id: dict[str, asyncio.Task[Any]] = {}
 
     def has_in_process_tasks(self) -> bool:
         """True while a background Deep asyncio.Task is still running (this worker)."""
         return bool(self._running)
+
+    def cancel_running_task(self, task_id: str) -> bool:
+        """Cancel in-process asyncio runner for task_id if present."""
+        bg = self._running_by_id.get(task_id)
+        if bg is None or bg.done():
+            return False
+        bg.cancel()
+        return True
 
     async def launch(
         self,
@@ -127,7 +162,13 @@ class DeepAnalysisWorkflowLauncher:
 
         bg = asyncio.create_task(self._run_workflow(task_id_str, request, workflow_graph))
         self._running.add(bg)
-        bg.add_done_callback(lambda t: self._running.discard(t))
+        self._running_by_id[task_id_str] = bg
+
+        def _cleanup(t: asyncio.Task[Any], tid: str = task_id_str) -> None:
+            self._running.discard(t)
+            self._running_by_id.pop(tid, None)
+
+        bg.add_done_callback(_cleanup)
 
         return WorkflowLaunchResult(task_id=task_id_str, report_id=task_id_str, status="pending")
 
@@ -214,6 +255,12 @@ class DeepAnalysisWorkflowLauncher:
                     conversation_id, task_id_str, artifact_status, artifact_id,
                 )
         except asyncio.CancelledError:
+            entry["status"] = "cancelled"
+            entry["error"] = "cancelled_by_user"
+            if entry.get("state"):
+                entry["state"]["current_phase"] = "failed"
+                entry["state"]["error_info"] = "cancelled_by_user"
+            await self._publish_analysis_failed(conversation_id, task_id_str, "cancelled_by_user")
             raise
         except Exception as exc:
             error_msg = f"{type(exc).__name__}: {exc}"

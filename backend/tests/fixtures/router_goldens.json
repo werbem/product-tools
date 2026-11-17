@@ -1,6 +1,6 @@
 {
-  "version": 1,
-  "description": "RouterService.route goldens. intent_override is optional pre-extracted Intent; context.has_prior_task maps to ConversationRoutingContext.has_prior_analysis.",
+  "version": 2,
+  "description": "RouterService.route goldens. intent_override is optional pre-extracted Intent; context.has_prior_task maps to ConversationRoutingContext.has_prior_analysis. Phase 0 additive fields: slice, tags[].",
   "cases": [
     {
       "id": "ca_commercial_behavior_report",
@@ -11,12 +11,21 @@
       "intent_override": {
         "type": "competitive_analysis",
         "company": "龙腾出行",
-        "competitors": ["悦途"],
+        "competitors": [
+          "悦途"
+        ],
         "product": "机场场景",
         "objective": "product_improvement",
         "confidence": 0.92
       },
-      "context": { "has_prior_task": false }
+      "context": {
+        "has_prior_task": false
+      },
+      "slice": "ca_launch",
+      "tags": [
+        "ca_launch",
+        "confusable"
+      ]
     },
     {
       "id": "ca_feizhu_meituan_strategy",
@@ -27,11 +36,19 @@
       "intent_override": {
         "type": "competitive_analysis",
         "company": "飞猪",
-        "competitors": ["美团"],
+        "competitors": [
+          "美团"
+        ],
         "product": "酒店",
         "objective": "product_improvement"
       },
-      "context": { "has_prior_task": false }
+      "context": {
+        "has_prior_task": false
+      },
+      "slice": "ca_launch",
+      "tags": [
+        "ca_launch"
+      ]
     },
     {
       "id": "ca_vs_full_report",
@@ -42,10 +59,18 @@
       "intent_override": {
         "type": "competitive_analysis",
         "company": "A",
-        "competitors": ["B"],
+        "competitors": [
+          "B"
+        ],
         "product": "产品"
       },
-      "context": { "has_prior_task": false }
+      "context": {
+        "has_prior_task": false
+      },
+      "slice": "ca_launch",
+      "tags": [
+        "ca_launch"
+      ]
     },
     {
       "id": "ca_en_commercial_behavior",
@@ -56,10 +81,18 @@
       "intent_override": {
         "type": "competitive_analysis",
         "company": "X",
-        "competitors": ["Y"],
+        "competitors": [
+          "Y"
+        ],
         "product": "product"
       },
-      "context": { "has_prior_task": false }
+      "context": {
+        "has_prior_task": false
+      },
+      "slice": "ca_launch",
+      "tags": [
+        "ca_launch"
+      ]
     },
     {
       "id": "ca_analyze_and_collect_support",
@@ -70,10 +103,19 @@
       "intent_override": {
         "type": "competitive_analysis",
         "company": "飞猪",
-        "competitors": ["美团"],
+        "competitors": [
+          "美团"
+        ],
         "product": "酒店"
       },
-      "context": { "has_prior_task": false }
+      "context": {
+        "has_prior_task": false
+      },
+      "slice": "ca_launch",
+      "tags": [
+        "ca_launch",
+        "confusable"
+      ]
     },
     {
       "id": "res_douyin_collect",
@@ -88,7 +130,13 @@
         "product": "抖音",
         "objective": "intelligence_collection"
       },
-      "context": { "has_prior_task": false }
+      "context": {
+        "has_prior_task": false
+      },
+      "slice": "research",
+      "tags": [
+        "research"
+      ]
     },
     {
       "id": "res_ctrip_membership_materials",
@@ -102,7 +150,13 @@
         "product": "会员体系",
         "objective": "intelligence_collection"
       },
-      "context": { "has_prior_task": false }
+      "context": {
+        "has_prior_task": false
+      },
+      "slice": "research",
+      "tags": [
+        "research"
+      ]
     },
     {
       "id": "res_meituan_survey_dynamics",
@@ -116,7 +170,14 @@
         "product": "酒店",
         "objective": "intelligence_collection"
       },
-      "context": { "has_prior_task": false }
+      "context": {
+        "has_prior_task": false
+      },
+      "slice": "research",
+      "tags": [
+        "research",
+        "confusable"
+      ]
     },
     {
       "id": "iq_meituan_recent_changes",
@@ -129,7 +190,13 @@
         "competitors": [],
         "product": "酒店"
       },
-      "context": { "has_prior_task": false }
+      "context": {
+        "has_prior_task": false
+      },
+      "slice": "information_query",
+      "tags": [
+        "information_query"
+      ]
     },
     {
       "id": "iq_feizhu_new_features",
@@ -142,7 +209,13 @@
         "competitors": [],
         "product": "酒店"
       },
-      "context": { "has_prior_task": false }
+      "context": {
+        "has_prior_task": false
+      },
+      "slice": "information_query",
+      "tags": [
+        "information_query"
+      ]
     },
     {
       "id": "iq_en_whats_new",
@@ -155,7 +228,13 @@
         "competitors": [],
         "product": "hotel"
       },
-      "context": { "has_prior_task": false }
+      "context": {
+        "has_prior_task": false
+      },
+      "slice": "information_query",
+      "tags": [
+        "information_query"
+      ]
     },
     {
       "id": "sq_ctrip_membership_how",
@@ -169,7 +248,14 @@
         "competitors": [],
         "product": "会员体系"
       },
-      "context": { "has_prior_task": false }
+      "context": {
+        "has_prior_task": false
+      },
+      "slice": "simple_question",
+      "tags": [
+        "simple_question",
+        "confusable"
+      ]
     },
     {
       "id": "sq_feizhu_what_company",
@@ -182,7 +268,13 @@
         "competitors": [],
         "product": null
       },
-      "context": { "has_prior_task": false }
+      "context": {
+        "has_prior_task": false
+      },
+      "slice": "simple_question",
+      "tags": [
+        "simple_question"
+      ]
     },
     {
       "id": "sq_longteng_who",
@@ -195,7 +287,13 @@
         "competitors": [],
         "product": null
       },
-      "context": { "has_prior_task": false }
+      "context": {
+        "has_prior_task": false
+      },
+      "slice": "simple_question",
+      "tags": [
+        "simple_question"
+      ]
     },
     {
       "id": "sq_yuetu_oneliner",
@@ -208,7 +306,13 @@
         "competitors": [],
         "product": null
       },
-      "context": { "has_prior_task": false }
+      "context": {
+        "has_prior_task": false
+      },
+      "slice": "simple_question",
+      "tags": [
+        "simple_question"
+      ]
     },
     {
       "id": "sq_yuetu_what",
@@ -220,7 +324,13 @@
         "company": "悦途",
         "competitors": []
       },
-      "context": { "has_prior_task": false }
+      "context": {
+        "has_prior_task": false
+      },
+      "slice": "simple_question",
+      "tags": [
+        "simple_question"
+      ]
     },
     {
       "id": "sq_what_is_ctrip",
@@ -232,7 +342,13 @@
         "company": "Ctrip",
         "competitors": []
       },
-      "context": { "has_prior_task": false }
+      "context": {
+        "has_prior_task": false
+      },
+      "slice": "simple_question",
+      "tags": [
+        "simple_question"
+      ]
     },
     {
       "id": "sq_en_one_sentence_intro",
@@ -242,10 +358,18 @@
       "notes": "in one sentence 定义/简介；无 analysis report 动词",
       "intent_override": {
         "company": "飞猪",
-        "competitors": ["美团"],
+        "competitors": [
+          "美团"
+        ],
         "product": "hotel"
       },
-      "context": { "has_prior_task": false }
+      "context": {
+        "has_prior_task": false
+      },
+      "slice": "simple_question",
+      "tags": [
+        "simple_question"
+      ]
     },
     {
       "id": "sq_competitors_in_last_report",
@@ -254,7 +378,14 @@
       "critical": false,
       "notes": "竞品是谁 → simple（非 follow_up：无「基于刚才/刚才的报告」升级句式）",
       "intent_override": null,
-      "context": { "has_prior_task": true }
+      "context": {
+        "has_prior_task": true
+      },
+      "slice": "simple_question",
+      "tags": [
+        "simple_question",
+        "listing"
+      ]
     },
     {
       "id": "fu_pricing_with_prior",
@@ -263,7 +394,92 @@
       "critical": true,
       "notes": "has_prior=true → follow_up；升级由 FollowUpService 判定，Router 只标 follow_up",
       "intent_override": null,
-      "context": { "has_prior_task": true }
+      "context": {
+        "has_prior_task": true
+      },
+      "slice": "follow_up",
+      "tags": [
+        "follow_up",
+        "follow_up_deixis",
+        "follow_up_advice"
+      ]
+    },
+    {
+      "id": "fu_based_on_this_info_ops_advice",
+      "message": "基于这个信息，如果我是产品运营，我下一步应该做什么，推进用户体验和稳固产品壁垒？",
+      "expect_workflow_type": "follow_up",
+      "critical": true,
+      "notes": "基于这个信息 = 指代上轮收集/分析，应短答追问而非再开一轮竞品分析",
+      "intent_override": {
+        "type": "competitive_analysis",
+        "company": "滴滴出行",
+        "competitors": [
+          "高德打车",
+          "曹操出行"
+        ],
+        "product": "滴滴打车",
+        "confidence": 0.9
+      },
+      "context": {
+        "has_prior_task": true
+      },
+      "slice": "follow_up",
+      "tags": [
+        "follow_up",
+        "follow_up_deixis",
+        "follow_up_advice"
+      ]
+    },
+    {
+      "id": "fu_ops_advice_no_deixis",
+      "message": "如果我是产品运营，我下一步应该做什么，推进用户体验和稳固产品壁垒？",
+      "expect_workflow_type": "follow_up",
+      "critical": true,
+      "notes": "无「基于刚才」等词；有 prior + 运营建议问句 → follow_up，禁止 default Deep",
+      "intent_override": {
+        "type": "competitive_analysis",
+        "company": "滴滴出行",
+        "competitors": [
+          "滴滴",
+          "高德打车",
+          "曹操出行"
+        ],
+        "product": "滴滴打车",
+        "confidence": 0.9
+      },
+      "context": {
+        "has_prior_task": true
+      },
+      "slice": "follow_up",
+      "tags": [
+        "follow_up",
+        "follow_up_advice"
+      ]
+    },
+    {
+      "id": "ca_explicit_with_prior_still_deep",
+      "message": "帮我做滴滴出行和曹操出行的竞品分析报告",
+      "expect_workflow_type": "competitive_analysis",
+      "critical": true,
+      "notes": "有 prior 但本句显式竞品分析 → 仍开 Deep",
+      "intent_override": {
+        "type": "competitive_analysis",
+        "company": "滴滴出行",
+        "competitors": [
+          "曹操出行"
+        ],
+        "product": "滴滴打车",
+        "confidence": 0.9
+      },
+      "context": {
+        "has_prior_task": true
+      },
+      "slice": "ca_launch",
+      "tags": [
+        "ca_launch",
+        "follow_up_negative",
+        "confusable"
+      ]
     },
     {
       "id": "fu_pricing_no_prior",
@@ -272,7 +488,14 @@
       "critical": true,
       "notes": "has_prior=false 仍为 follow_up（no_prior 澄清路径）",
       "intent_override": null,
-      "context": { "has_prior_task": false }
+      "context": {
+        "has_prior_task": false
+      },
+      "slice": "follow_up",
+      "tags": [
+        "follow_up",
+        "follow_up_deixis"
+      ]
     },
     {
       "id": "fu_continue_full_ca_report",
@@ -281,7 +504,14 @@
       "critical": true,
       "notes": "Router 层期望 follow_up；完整报告升级由 FollowUpService。金标暴露原模式漏匹配「完整竞品分析报告」，已小修 follow_up 正则。",
       "intent_override": null,
-      "context": { "has_prior_task": true }
+      "context": {
+        "has_prior_task": true
+      },
+      "slice": "follow_up",
+      "tags": [
+        "follow_up",
+        "follow_up_upgrade"
+      ]
     },
     {
       "id": "fu_supplement_pricing",
@@ -290,7 +520,14 @@
       "critical": false,
       "notes": "补充一下 + 刚才分析 → follow_up",
       "intent_override": null,
-      "context": { "has_prior_task": true }
+      "context": {
+        "has_prior_task": true
+      },
+      "slice": "follow_up",
+      "tags": [
+        "follow_up",
+        "follow_up_deixis"
+      ]
     },
     {
       "id": "oos_weather",
@@ -304,7 +541,13 @@
         "competitors": [],
         "product": null
       },
-      "context": { "has_prior_task": false }
+      "context": {
+        "has_prior_task": false
+      },
+      "slice": "out_of_scope",
+      "tags": [
+        "oos"
+      ]
     },
     {
       "id": "oos_leave_email",
@@ -313,7 +556,13 @@
       "critical": true,
       "notes": "请假邮件：硬域外（不依赖 Intent unsupported，避免误启 Full）",
       "intent_override": null,
-      "context": { "has_prior_task": false }
+      "context": {
+        "has_prior_task": false
+      },
+      "slice": "out_of_scope",
+      "tags": [
+        "oos"
+      ]
     },
     {
       "id": "oos_what_time",
@@ -327,7 +576,13 @@
         "competitors": [],
         "product": null
       },
-      "context": { "has_prior_task": false }
+      "context": {
+        "has_prior_task": false
+      },
+      "slice": "out_of_scope",
+      "tags": [
+        "oos"
+      ]
     },
     {
       "id": "oos_en_weather",
@@ -341,22 +596,34 @@
         "competitors": [],
         "product": null
       },
-      "context": { "has_prior_task": false }
+      "context": {
+        "has_prior_task": false
+      },
+      "slice": "out_of_scope",
+      "tags": [
+        "oos"
+      ]
     },
     {
       "id": "mix_collect_ca_report_materials",
       "message": "帮我收集竞品分析报告相关资料",
-      "expect_workflow_type": "competitive_analysis",
-      "critical": false,
-      "needs_product_confirm": true,
-      "notes": "Step 6 原文倾向 research（收集优先于嵌套「报告」）。现行 LegacyBridge：分析信号覆盖收集 → CA。按产品已落地规则写死，待确认是否改为 research。",
+      "expect_workflow_type": "research",
+      "critical": true,
+      "notes": "G3：收集…报告相关资料 → research（嵌套「竞品分析报告」不作 CA）",
       "intent_override": {
         "company": "竞品",
         "competitors": [],
         "product": "资料",
         "objective": "intelligence_collection"
       },
-      "context": { "has_prior_task": false }
+      "context": {
+        "has_prior_task": false
+      },
+      "slice": "research",
+      "tags": [
+        "research",
+        "confusable"
+      ]
     },
     {
       "id": "mix_commercial_behavior_types",
@@ -366,7 +633,14 @@
       "needs_product_confirm": true,
       "notes": "不得 research。更安全策略：simple（勿误启 Full）。simple vs OOS 待产品确认。",
       "intent_override": null,
-      "context": { "has_prior_task": false }
+      "context": {
+        "has_prior_task": false
+      },
+      "slice": "simple_question",
+      "tags": [
+        "simple_question",
+        "confusable"
+      ]
     },
     {
       "id": "res_en_research_meituan_news",
@@ -380,7 +654,13 @@
         "product": "hotel",
         "objective": "intelligence_collection"
       },
-      "context": { "has_prior_task": false }
+      "context": {
+        "has_prior_task": false
+      },
+      "slice": "research",
+      "tags": [
+        "research"
+      ]
     },
     {
       "id": "res_en_collect_douyin_info",
@@ -393,7 +673,35 @@
         "competitors": [],
         "product": "Douyin"
       },
-      "context": { "has_prior_task": false }
+      "context": {
+        "has_prior_task": false
+      },
+      "slice": "research",
+      "tags": [
+        "research"
+      ]
     }
+  ],
+  "slices": [
+    "ca_launch",
+    "follow_up",
+    "information_query",
+    "out_of_scope",
+    "research",
+    "simple_question"
+  ],
+  "tag_vocabulary": [
+    "ca_launch",
+    "confusable",
+    "follow_up",
+    "follow_up_advice",
+    "follow_up_deixis",
+    "follow_up_negative",
+    "follow_up_upgrade",
+    "information_query",
+    "listing",
+    "oos",
+    "research",
+    "simple_question"
   ]
 }

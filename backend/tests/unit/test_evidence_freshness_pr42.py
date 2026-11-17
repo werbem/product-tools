@@ -53,7 +53,7 @@ class TestAnalysisModeFreshnessConfig:
         for mode in ("fast", "full"):
             cfg = get_mode_config(mode)
             assert cfg.evidence_max_age_months == 48
-            assert cfg.max_undated_evidence_items == 5
+            assert cfg.max_undated_evidence_items == 3
             assert cfg.enable_lightweight_date_enrichment is True
             assert cfg.date_enrichment_timeout_s == 2.5
             assert cfg.date_enrichment_max_urls == 8
@@ -78,18 +78,52 @@ class TestAgeWindow:
         assert main[0].date == "2024-01-01"
         assert meta["filtered_expired_count"] == 1
         assert meta["evidence_cutoff_date"] == "2022-09-02"
+        assert meta.get("stale_fallback_used") is False
 
-    def test_undated_capped_at_five(self):
+    def test_all_expired_stale_fallback_keeps_newest(self):
+        items = [
+            _item(id="E001", date="2011-05-01", url="https://a.com/1", confidence="high"),
+            _item(id="E002", date="2018-06-01", url="https://a.com/2", confidence="medium"),
+            _item(id="E003", date="2015-01-01", url="https://a.com/3", confidence="medium"),
+        ]
+        main, meta = apply_evidence_age_window(
+            items,
+            max_age_months=48,
+            max_undated_evidence_items=0,
+            max_stale_fallback_items=2,
+            today=date(2026, 9, 2),
+        )
+        assert meta["stale_fallback_used"] is True
+        assert meta["stale_fallback_count"] == 2
+        assert meta["filtered_expired_count"] == 3
+        assert "时效提示" in (meta.get("stale_fallback_warning") or "")
+        assert [e.date for e in main] == ["2018-06-01", "2015-01-01"]
+        assert all(e.raw_data.get("stale_fallback") for e in main)
+        assert all(e.confidence == "low" for e in main)
+
+    def test_all_expired_stale_fallback_can_disable(self):
+        items = [_item(id="E001", date="2011-05-01", url="https://a.com/1")]
+        main, meta = apply_evidence_age_window(
+            items,
+            max_age_months=48,
+            stale_fallback_when_empty=False,
+            today=date(2026, 9, 2),
+        )
+        assert main == []
+        assert meta.get("stale_fallback_used") is False
+        assert meta["filtered_expired_count"] == 1
+
+    def test_undated_capped_at_three(self):
         items = [
             _item(id=f"E{i:03d}", date="", url=f"https://a.com/{i}")
             for i in range(1, 9)
         ]
         main, meta = apply_evidence_age_window(
-            items, max_age_months=48, max_undated_evidence_items=5, today=date(2026, 9, 2),
+            items, max_age_months=48, max_undated_evidence_items=3, today=date(2026, 9, 2),
         )
-        assert len(main) == 5
-        assert meta["undated_kept_count"] == 5
-        assert meta["undated_dropped_count"] == 3
+        assert len(main) == 3
+        assert meta["undated_kept_count"] == 3
+        assert meta["undated_dropped_count"] == 5
 
     def test_event_date_expired_excluded(self):
         items = [
@@ -111,7 +145,20 @@ class TestAgeWindow:
 
 class TestPageMetaEnrichment:
     def test_extract_article_published_time(self):
-        assert extract_published_date_from_html(FAKE_HTML) == "2024-06-15"
+        parsed, source = extract_published_date_from_html(FAKE_HTML)
+        assert parsed == "2024-06-15"
+        assert source == "page_meta"
+
+    def test_extract_date_from_body_when_no_meta(self):
+        html = """
+        <html><body>
+        <p>本文发布于2024年8月20日，介绍会员体系变化。</p>
+        <p>更早在2019年1月1日曾改版。</p>
+        </body></html>
+        """
+        parsed, source = extract_published_date_from_html(html)
+        assert parsed == "2024-08-20"
+        assert source == "page_body"
 
     def test_enrich_from_fake_html_fixture(self):
         item = _item(date="", url="https://news.example.com/2024/story")
@@ -203,7 +250,7 @@ class TestResearchPipeline:
             competitor_company="B",
             product="P",
             evidence_max_age_months=48,
-            max_undated_evidence_items=5,
+            max_undated_evidence_items=3,
             enable_lightweight_date_enrichment=False,
             max_evidence_items=20,
         )
@@ -225,10 +272,34 @@ class TestResearchPipeline:
         assert "2011-01-01" not in dates
         assert "2025-02-01" in dates
         undated = [e for e in out if not e.date]
-        assert len(undated) <= 5
+        assert len(undated) <= 3
         meta = agent._last_freshness_meta
         assert meta["filtered_expired_count"] >= 2
         assert meta["evidence_cutoff_date"]
+
+    def test_pipeline_all_expired_uses_stale_fallback(self):
+        agent = ResearchAgent()
+        input_data = ResearchInput(
+            our_company="A",
+            competitor_company="B",
+            product="P",
+            evidence_max_age_months=48,
+            max_undated_evidence_items=0,
+            enable_lightweight_date_enrichment=False,
+            max_evidence_items=20,
+        )
+        items = [
+            _item(id="E001", date="2010-01-01", url="https://a.com/old1"),
+            _item(id="E002", date="2019-06-01", url="https://a.com/old2"),
+        ]
+        out = asyncio.run(agent._apply_date_and_freshness_pipeline(items, input_data))
+        assert len(out) == 2
+        meta = agent._last_freshness_meta
+        assert meta["stale_fallback_used"] is True
+        assert meta["stale_fallback_count"] == 2
+        assert "时效提示" in (meta.get("stale_fallback_warning") or "")
+        assert out[0].date == "2019-06-01"
+        assert out[0].raw_data.get("stale_fallback") is True
 
     def test_multi_date_still_picks_recent_pr41(self):
         item = SimpleNamespace(

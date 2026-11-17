@@ -126,7 +126,7 @@ export default function ReportPage({
           <h1 className="text-2xl font-bold mb-4">竞品分析报告</h1>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
             <div>
-              <div className="text-muted-foreground mb-1">我方公司</div>
+              <div className="text-muted-foreground mb-1">分析公司</div>
               <div className="font-medium">{report.our_company}</div>
             </div>
             <div>
@@ -150,6 +150,16 @@ export default function ReportPage({
             </div>
           )}
 
+          {(report.metadata?.report_timeout_fallback
+            || report.metadata?.compare_timeout
+            || report.metadata?.strategy_timeout
+            || report.metadata?.generation_note) && (
+            <div className="mt-4 p-3 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg text-sm text-amber-800 dark:text-amber-300">
+              {report.metadata?.generation_note
+                || "本报告为超时降级稿：中间对比/战略或报告生成未跑完，正文更接近证据摘要，可能与标准十三章目录不一致。建议稍后用完整模式重跑。"}
+            </div>
+          )}
+
           {/* Sections list */}
           {report.sections && report.sections.length > 0 && (
             <div className="mt-4">
@@ -165,6 +175,9 @@ export default function ReportPage({
                     <li key={s.order} className="flex items-center gap-2">
                       <span className="text-primary font-medium">{s.order}.</span>
                       <span>{s.title}</span>
+                      {s.word_count === 0 || (s.content || "").includes("暂无内容") ? (
+                        <span className="text-[10px] text-amber-600">（空）</span>
+                      ) : null}
                     </li>
                   ))}
                 </ol>

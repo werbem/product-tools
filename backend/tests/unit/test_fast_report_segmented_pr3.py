@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import re
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -170,11 +171,36 @@ class TestSegmentedGeneration:
 
         md = result.output.report_document.formats.markdown
         assert "Segment 1 body." in md
-        assert "本章生成超时" in md
+        assert "降级为证据要点拼装" in md
         assert "Segment 3 body." in md
-        assert result.output.report_document.metadata["segment_timeouts"] == [2]
+        meta = result.output.report_document.metadata
+        assert meta["segment_timeouts"] == [2]
+        assert meta["segment_retries"] == [2]
+        assert meta["segment_evidence_fallback"] == [2]
         for title, _ in SECTION_DEFS:
             assert f"## {title}" in md
+
+    @pytest.mark.asyncio
+    async def test_segment_retry_recovers_without_fallback(self, ctx: AgentContext):
+        agent = ReportAgent()
+        attempts: dict[int, int] = {}
+
+        async def fake_seg(agent, input_data, segment, *args, **kwargs):
+            attempts[segment] = attempts.get(segment, 0) + 1
+            if segment == 1 and attempts[segment] == 1:
+                raise asyncio.TimeoutError()
+            return _segment_markdown(segment), 2, 2
+
+        with patch.object(ReportAgent, "_generate_segment", new=fake_seg):
+            with patch.object(ReportAgent, "_touch_segment_progress"):
+                result = await agent.arun(ctx, _report_input(fast=True))
+
+        meta = result.output.report_document.metadata
+        assert meta["segment_timeouts"] == []
+        assert meta["segment_retries"] == [1]
+        assert meta["segment_evidence_fallback"] == []
+        assert "Segment 1 body." in result.output.report_document.formats.markdown
+        assert attempts[1] == 2
 
     @pytest.mark.asyncio
     async def test_low_remaining_budget_skips_late_segments_with_fallback(self, ctx: AgentContext):
@@ -208,7 +234,10 @@ class TestSegmentedGeneration:
                     result = await agent.arun(ctx, _report_input(fast=True))
 
         assert llm_calls == 1
-        assert result.output.report_document.metadata["segment_timeouts"] == [2, 3]
+        meta = result.output.report_document.metadata
+        assert meta["segment_timeouts"] == [2, 3]
+        assert meta["segment_evidence_fallback"] == [2, 3]
+        assert "降级为证据要点拼装" in result.output.report_document.formats.markdown
         for title, _ in SECTION_DEFS:
             assert f"## {title}" in result.output.report_document.formats.markdown
 
@@ -258,6 +287,26 @@ class TestMergeAndSections:
 
     def test_segment_timeout_fallback_per_chapter(self):
         fb = ReportAgent._build_segment_timeout_fallback(2, FAST_REPORT_SEGMENTS[2])
-        assert fb.count("本章生成超时") == len(FAST_REPORT_SEGMENTS[2])
+        assert fb.count("降级为证据要点拼装") == len(FAST_REPORT_SEGMENTS[2])
         for title, _ in FAST_REPORT_SEGMENTS[2]:
+            assert f"## {title}" in fb
+
+    def test_segment_evidence_fallback_uses_evidence_bullets(self):
+        evidence = json.dumps(
+            [
+                {"title": "拼多多活跃用户", "content": "月活增长", "source": "公开报道"},
+                {"title": "淘宝生态", "content": "商家规模领先", "source": "研报"},
+            ],
+            ensure_ascii=False,
+        )
+        fb = ReportAgent._build_segment_evidence_fallback(
+            1,
+            FAST_REPORT_SEGMENTS[1],
+            _report_input(fast=True),
+            evidence,
+        )
+        assert "降级为证据要点拼装" in fb
+        assert "拼多多活跃用户" in fb or "淘宝生态" in fb
+        assert "本章生成超时，请稍后重试" not in fb
+        for title, _ in FAST_REPORT_SEGMENTS[1]:
             assert f"## {title}" in fb

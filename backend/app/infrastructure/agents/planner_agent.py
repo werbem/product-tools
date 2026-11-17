@@ -22,7 +22,10 @@ from app.infrastructure.agents.planner_prompt import (
     build_user_prompt,
 )
 from app.infrastructure.llm.client import llm_client
-
+from app.application.services.intent_entities import (
+    is_placeholder_entity,
+    sanitize_search_keywords,
+)
 
 # ── Source type definitions ──
 
@@ -200,16 +203,22 @@ class PlannerAgent(BaseAgent[PlannerInput, PlannerOutput]):
     ) -> ResearchPlan:
         """Map LLM structured output → ResearchPlan with individual ResearchTasks."""
         dimensions = [normalize_dimension(d) for d in llm_plan.research_dimensions]
-        base_keywords = [
-            input_data.our_company,
-            input_data.competitor_company,
-            input_data.product,
-            f"{input_data.our_company} {input_data.product}",
-            f"{input_data.competitor_company} {input_data.product}",
-        ]
+        competitor = (input_data.competitor_company or "").strip()
+        if is_placeholder_entity(competitor):
+            competitor = ""
+        base_keywords = sanitize_search_keywords(
+            [
+                input_data.our_company,
+                competitor,
+                input_data.product,
+                f"{input_data.our_company} {input_data.product}".strip(),
+                f"{competitor} {input_data.product}".strip() if competitor else "",
+            ],
+            company=input_data.our_company,
+        )
         # Add LLM-generated keywords
         all_keywords = base_keywords + [
-            kw for kw in llm_plan.search_keywords
+            kw for kw in sanitize_search_keywords(list(llm_plan.search_keywords or []))
             if kw not in base_keywords
         ]
 
@@ -227,12 +236,15 @@ class PlannerAgent(BaseAgent[PlannerInput, PlannerOutput]):
             # Add dimension-specific keywords from the LLM output
             if dimensions and i < len(dimensions):
                 dim = dimensions[i]
-                task_keywords.append(f"{input_data.competitor_company} {dim}")
+                if competitor:
+                    task_keywords.append(f"{competitor} {dim}")
+                elif input_data.our_company:
+                    task_keywords.append(f"{input_data.our_company} {dim}")
 
             task = ResearchTask(
                 task_id=f"task_{source_type}_{i:03d}",
                 source_type=source_type,
-                keywords=task_keywords,
+                keywords=sanitize_search_keywords(task_keywords),
                 priority=priority,
                 dependencies=[],
             )
@@ -255,6 +267,28 @@ class PlannerAgent(BaseAgent[PlannerInput, PlannerOutput]):
     @staticmethod
     def _mock_plan(input_data: PlannerInput) -> ResearchPlan:
         """Fallback: return a standard research plan when LLM unavailable."""
+        competitor = (input_data.competitor_company or "").strip()
+        if is_placeholder_entity(competitor):
+            competitor = ""
+        web_kws = sanitize_search_keywords(
+            [input_data.our_company, competitor, input_data.product],
+            company=input_data.our_company,
+        )
+        as_kws = sanitize_search_keywords(
+            [input_data.our_company, input_data.product],
+            company=input_data.our_company,
+        )
+        social_kws = sanitize_search_keywords(
+            [input_data.our_company, competitor or input_data.product],
+            company=input_data.our_company,
+        )
+        ai_kws = sanitize_search_keywords(
+            [
+                f"{input_data.our_company} {input_data.product} 商业发展",
+                f"{input_data.our_company} {competitor} {input_data.product}".strip(),
+            ],
+            company=input_data.our_company,
+        )
         return ResearchPlan(
             objective=input_data.objective,
             analysis_scope=[
@@ -268,28 +302,28 @@ class PlannerAgent(BaseAgent[PlannerInput, PlannerOutput]):
                 ResearchTask(
                     task_id="task_web_001",
                     source_type="web",
-                    keywords=[input_data.our_company, input_data.competitor_company, input_data.product],
+                    keywords=web_kws or [input_data.our_company or input_data.product],
                     priority=5,
                     dependencies=[],
                 ),
                 ResearchTask(
                     task_id="task_as_001",
                     source_type="app_store",
-                    keywords=[input_data.our_company, input_data.product],
+                    keywords=as_kws or [input_data.product or input_data.our_company],
                     priority=3,
                     dependencies=[],
                 ),
                 ResearchTask(
                     task_id="task_social_001",
                     source_type="social",
-                    keywords=[input_data.our_company, input_data.competitor_company],
+                    keywords=social_kws or web_kws,
                     priority=3,
                     dependencies=[],
                 ),
                 ResearchTask(
                     task_id="task_ai_001",
                     source_type="ai_search",
-                    keywords=[f"{input_data.our_company} {input_data.competitor_company} {input_data.product} 竞品分析"],
+                    keywords=ai_kws or web_kws,
                     priority=4,
                     dependencies=[],
                 ),

@@ -10,17 +10,9 @@ import { WorkspaceAsyncState } from "./workspace-async-state";
 import { WorkspaceEmptyState } from "./workspace-empty-state";
 import { WorkspacePageHeader } from "./workspace-page-header";
 
-/** Keep the latest report artifact per project to avoid duplicate cards. */
-function dedupeLatestByProject(artifacts: Artifact[]): Artifact[] {
-  const byProject = new Map<string, Artifact>();
-  for (const artifact of artifacts) {
-    const key = artifact.project_id || artifact.id;
-    const existing = byProject.get(key);
-    if (!existing || new Date(artifact.created_at).getTime() > new Date(existing.created_at).getTime()) {
-      byProject.set(key, artifact);
-    }
-  }
-  return Array.from(byProject.values()).sort(
+/** All persisted artifacts, newest first. Project delete hard-removes related files. */
+function sortArtifactsNewestFirst(artifacts: Artifact[]): Artifact[] {
+  return [...artifacts].sort(
     (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
   );
 }
@@ -44,19 +36,28 @@ export function FilesPageContent() {
       .finally(() => setLoading(false));
   }, []);
 
-  const visibleArtifacts = useMemo(() => dedupeLatestByProject(artifacts), [artifacts]);
+  const visibleArtifacts = useMemo(() => sortArtifactsNewestFirst(artifacts), [artifacts]);
   const isEmpty = !loading && !error && visibleArtifacts.length === 0;
 
   return (
     <div>
-      <WorkspacePageHeader title="分析文件" description="查看已生成的分析报告与产出物。" />
+      <WorkspacePageHeader
+        title="分析文件"
+        description="展示全部已生成、未随项目删除的分析报告与产出物。"
+      />
       {isEmpty ? (
         <WorkspaceEmptyState title="暂无分析文件" description="完成一次分析后，报告将出现在这里。" />
       ) : (
         <WorkspaceAsyncState loading={loading} error={error}>
           <div className="space-y-3">
             {visibleArtifacts.map((artifact) => {
-              const reportPath = `/report/${artifact.task_id || artifact.report_id}`;
+              const isEvidence = artifact.type === "evidence_package";
+              const href =
+                (typeof artifact.metadata?.view_url === "string" && artifact.metadata.view_url)
+                || (isEvidence
+                  ? `/workspace/collections/${artifact.task_id}`
+                  : `/report/${artifact.task_id || artifact.report_id}`);
+              const linkLabel = isEvidence ? "查看收集结果" : "查看报告";
               return (
                 <div key={artifact.id} className="rounded-xl border bg-card p-4">
                   <div className="font-medium">{artifact.title}</div>
@@ -64,8 +65,8 @@ export function FilesPageContent() {
                     {formatDateTime(artifact.created_at)}
                   </div>
                   <div className="mt-3 flex gap-3 text-sm">
-                    <Link href={reportPath} className="text-primary hover:underline">
-                      查看报告
+                    <Link href={href} className="text-primary hover:underline">
+                      {linkLabel}
                     </Link>
                     {artifact.download_url ? (
                       <a

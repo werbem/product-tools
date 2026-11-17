@@ -1,0 +1,84 @@
+{
+  "frozen_at": "2026-09-06T09:29:15.131266+00:00",
+  "phase": 7,
+  "fixture": "tests/fixtures/e2e_decision_goldens.json",
+  "case_count": 20,
+  "critical_count": 20,
+  "critical_accuracy": 1.0,
+  "overall_accuracy": 1.0,
+  "overall_threshold": 0.95,
+  "gates_ok": true,
+  "by_slice": {
+    "ca_launch": {
+      "total": 2,
+      "passed": 2
+    },
+    "research": {
+      "total": 2,
+      "passed": 2
+    },
+    "listing": {
+      "total": 1,
+      "passed": 1
+    },
+    "qa": {
+      "total": 2,
+      "passed": 2
+    },
+    "follow_up_short": {
+      "total": 2,
+      "passed": 2
+    },
+    "follow_up_upgrade": {
+      "total": 1,
+      "passed": 1
+    },
+    "clarify": {
+      "total": 1,
+      "passed": 1
+    },
+    "ambiguous": {
+      "total": 1,
+      "passed": 1
+    },
+    "invalid_deixis": {
+      "total": 2,
+      "passed": 2
+    },
+    "memory_fill": {
+      "total": 1,
+      "passed": 1
+    },
+    "multi_step": {
+      "total": 3,
+      "passed": 3
+    },
+    "oos": {
+      "total": 2,
+      "passed": 2
+    }
+  },
+  "critical_ids": [
+    "e2e_ca_launch_didi",
+    "e2e_ca_with_prior_still_deep",
+    "e2e_research_collect",
+    "e2e_research_nested_ca_materials",
+    "e2e_listing_only",
+    "e2e_qa_dynamics",
+    "e2e_qa_definition",
+    "e2e_follow_up_ops_advice",
+    "e2e_follow_up_pricing_deixis",
+    "e2e_follow_up_upgrade",
+    "e2e_clarify_missing_company",
+    "e2e_ambiguous_no_default_deep",
+    "e2e_invalid_deixis_with_prior",
+    "e2e_invalid_deixis_bad_memory",
+    "e2e_memory_fill_dynamics",
+    "e2e_multi_listing_then_analyze",
+    "e2e_multi_collect_then_advise",
+    "e2e_multi_collect_then_analyze",
+    "e2e_oos_weather",
+    "e2e_oos_email"
+  ],
+  "failures": []
+}

@@ -24,6 +24,7 @@ _DATE_SOURCE_SNIPPET = "snippet"
 _DATE_SOURCE_SNIPPET_RECENT = "snippet_recent"
 _DATE_SOURCE_TIMELINE = "timeline_event_recent"
 _DATE_SOURCE_PAGE_META = "page_meta"
+_DATE_SOURCE_PAGE_BODY = "page_body"
 _DATE_SOURCE_NONE = "none"
 
 _SEMANTIC_PUBLISH = "publish_date"
@@ -225,6 +226,8 @@ def compute_temporal_confidence(
         return "high"
     if date_source == _DATE_SOURCE_PAGE_META:
         return "high"
+    if date_source == _DATE_SOURCE_PAGE_BODY:
+        return "medium"
     if date_source == _DATE_SOURCE_URL:
         return "medium"
     if date_source in (_DATE_SOURCE_SNIPPET_RECENT, _DATE_SOURCE_SNIPPET, _DATE_SOURCE_TITLE):
@@ -247,9 +250,14 @@ def format_evidence_date_label(item: Any) -> str:
         semantic = str(raw.get("date_semantic") or "")
     if not date_str:
         return "日期未知（来源未提供发布时间）"
+    stale = isinstance(raw, dict) and bool(raw.get("stale_fallback"))
     if semantic == _SEMANTIC_EVENT:
-        return f"事件日期：{date_str}（非页面发布日）"
-    return date_str
+        label = f"事件日期：{date_str}（非页面发布日）"
+    else:
+        label = date_str
+    if stale:
+        return f"{label}（时效较低，降级保留）"
+    return label
 
 
 def _apply_result(

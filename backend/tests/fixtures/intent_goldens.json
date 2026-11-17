@@ -1,0 +1,650 @@
+{
+  "version": 1,
+  "description": "DecisionIntentExtractor goldens (Phase 2). Independent of Router workflow expects.",
+  "cases": [
+    {
+      "id": "ca_commercial_behavior_report",
+      "message": "帮我完成龙腾出行和悦途的机场场景的竞品分析报告，重点是商业行为、海外战略方向的竞品差异",
+      "has_prior": false,
+      "expect_task_family": "analyze",
+      "expect_discourse": "new",
+      "expect_ask_subtype": null,
+      "critical": true,
+      "slice": "ca_launch",
+      "tags": [
+        "ca_launch",
+        "confusable"
+      ],
+      "notes": "商业行为不得打成 research；分析报告优先",
+      "pair_with": null
+    },
+    {
+      "id": "ca_feizhu_meituan_strategy",
+      "message": "对比飞猪和美团酒店，给出产品策略建议",
+      "has_prior": false,
+      "expect_task_family": "analyze",
+      "expect_discourse": "new",
+      "expect_ask_subtype": null,
+      "critical": true,
+      "slice": "ca_launch",
+      "tags": [
+        "ca_launch"
+      ],
+      "notes": "对比 + 策略建议 → Full，不是 information_query",
+      "pair_with": null
+    },
+    {
+      "id": "ca_vs_full_report",
+      "message": "分析 A vs B 的竞争优势并出完整报告",
+      "has_prior": false,
+      "expect_task_family": "analyze",
+      "expect_discourse": "new",
+      "expect_ask_subtype": null,
+      "critical": true,
+      "slice": "ca_launch",
+      "tags": [
+        "ca_launch"
+      ],
+      "notes": "完整报告 + vs → competitive_analysis",
+      "pair_with": null
+    },
+    {
+      "id": "ca_en_commercial_behavior",
+      "message": "Write a competitive analysis report on X vs Y focusing on commercial behavior",
+      "has_prior": false,
+      "expect_task_family": "analyze",
+      "expect_discourse": "new",
+      "expect_ask_subtype": null,
+      "critical": true,
+      "slice": "ca_launch",
+      "tags": [
+        "ca_launch"
+      ],
+      "notes": "英文竞品分析报告 + commercial behavior 不得打成 research",
+      "pair_with": null
+    },
+    {
+      "id": "ca_analyze_and_collect_support",
+      "message": "分析飞猪 vs 美团，并收集相关公开资料做支撑",
+      "has_prior": false,
+      "expect_task_family": "analyze",
+      "expect_discourse": "new",
+      "expect_ask_subtype": null,
+      "critical": true,
+      "slice": "ca_launch",
+      "tags": [
+        "ca_launch",
+        "confusable"
+      ],
+      "notes": "分析为主、收集做支撑 → CA（易混组）",
+      "pair_with": null
+    },
+    {
+      "id": "res_douyin_collect",
+      "message": "帮我收集字节跳动抖音近期商业发展信息",
+      "has_prior": false,
+      "expect_task_family": "collect",
+      "expect_discourse": "new",
+      "expect_ask_subtype": null,
+      "critical": true,
+      "slice": "research",
+      "tags": [
+        "research"
+      ],
+      "notes": "收集 + 近期信息 → research，不是 CA",
+      "pair_with": null
+    },
+    {
+      "id": "res_ctrip_membership_materials",
+      "message": "收集携程会员体系资料",
+      "has_prior": false,
+      "expect_task_family": "collect",
+      "expect_discourse": "new",
+      "expect_ask_subtype": null,
+      "critical": true,
+      "slice": "research",
+      "tags": [
+        "research"
+      ],
+      "notes": "收集资料 → research",
+      "pair_with": null
+    },
+    {
+      "id": "res_meituan_survey_dynamics",
+      "message": "调研一下美团酒店近期动态",
+      "has_prior": false,
+      "expect_task_family": "collect",
+      "expect_discourse": "new",
+      "expect_ask_subtype": null,
+      "critical": true,
+      "slice": "research",
+      "tags": [
+        "research",
+        "confusable"
+      ],
+      "notes": "调研/近期动态：现行规则为 research（非 information_query），因 collection 信号优先于轻问",
+      "pair_with": null
+    },
+    {
+      "id": "iq_meituan_recent_changes",
+      "message": "美团酒店最近有什么变化？",
+      "has_prior": false,
+      "expect_task_family": "ask",
+      "expect_discourse": "new",
+      "expect_ask_subtype": "dynamics",
+      "critical": true,
+      "slice": "information_query",
+      "tags": [
+        "information_query"
+      ],
+      "notes": "最近有什么变化 → information_query；无收集/分析动词",
+      "pair_with": null
+    },
+    {
+      "id": "iq_feizhu_new_features",
+      "message": "飞猪酒店有哪些新功能？",
+      "has_prior": false,
+      "expect_task_family": "ask",
+      "expect_discourse": "new",
+      "expect_ask_subtype": "dynamics",
+      "critical": false,
+      "slice": "information_query",
+      "tags": [
+        "information_query"
+      ],
+      "notes": "有哪些新功能 → information_query",
+      "pair_with": null
+    },
+    {
+      "id": "iq_en_whats_new",
+      "message": "What's new with Meituan hotel?",
+      "has_prior": false,
+      "expect_task_family": "ask",
+      "expect_discourse": "new",
+      "expect_ask_subtype": "dynamics",
+      "critical": false,
+      "slice": "information_query",
+      "tags": [
+        "information_query"
+      ],
+      "notes": "英文 what's new → information_query",
+      "pair_with": null
+    },
+    {
+      "id": "sq_ctrip_membership_how",
+      "message": "携程会员体系大概是怎样的？",
+      "has_prior": false,
+      "expect_task_family": "ask",
+      "expect_discourse": "new",
+      "expect_ask_subtype": "definition",
+      "critical": true,
+      "slice": "simple_question",
+      "tags": [
+        "simple_question",
+        "confusable"
+      ],
+      "notes": "Step 5：体系「是怎样」走 simple，不启 Full。dump 曾落入 LegacyBridge CA，已小修 simple 模式。轻问 vs 定义以 simple 为更安全策略。",
+      "pair_with": null
+    },
+    {
+      "id": "sq_feizhu_what_company",
+      "message": "飞猪是什么公司？",
+      "has_prior": false,
+      "expect_task_family": "ask",
+      "expect_discourse": "new",
+      "expect_ask_subtype": "definition",
+      "critical": true,
+      "slice": "simple_question",
+      "tags": [
+        "simple_question"
+      ],
+      "notes": "是什么公司 → simple_question",
+      "pair_with": null
+    },
+    {
+      "id": "sq_longteng_who",
+      "message": "龙腾出行是谁？",
+      "has_prior": false,
+      "expect_task_family": "ask",
+      "expect_discourse": "new",
+      "expect_ask_subtype": "definition",
+      "critical": true,
+      "slice": "simple_question",
+      "tags": [
+        "simple_question"
+      ],
+      "notes": "是谁 → simple_question",
+      "pair_with": null
+    },
+    {
+      "id": "sq_yuetu_oneliner",
+      "message": "一句话介绍悦途",
+      "has_prior": false,
+      "expect_task_family": "ask",
+      "expect_discourse": "new",
+      "expect_ask_subtype": "definition",
+      "critical": true,
+      "slice": "simple_question",
+      "tags": [
+        "simple_question"
+      ],
+      "notes": "一句话介绍 → simple_question",
+      "pair_with": null
+    },
+    {
+      "id": "sq_yuetu_what",
+      "message": "悦途是什么",
+      "has_prior": false,
+      "expect_task_family": "ask",
+      "expect_discourse": "new",
+      "expect_ask_subtype": "definition",
+      "critical": false,
+      "slice": "simple_question",
+      "tags": [
+        "simple_question"
+      ],
+      "notes": "短句定义",
+      "pair_with": null
+    },
+    {
+      "id": "sq_what_is_ctrip",
+      "message": "What is Ctrip?",
+      "has_prior": false,
+      "expect_task_family": "ask",
+      "expect_discourse": "new",
+      "expect_ask_subtype": "definition",
+      "critical": false,
+      "slice": "simple_question",
+      "tags": [
+        "simple_question"
+      ],
+      "notes": "英文 What is → simple_question",
+      "pair_with": null
+    },
+    {
+      "id": "sq_en_one_sentence_intro",
+      "message": "Feizhu vs Meituan hotel brief intro in one sentence",
+      "has_prior": false,
+      "expect_task_family": "ask",
+      "expect_discourse": "new",
+      "expect_ask_subtype": "definition",
+      "critical": false,
+      "slice": "simple_question",
+      "tags": [
+        "simple_question"
+      ],
+      "notes": "in one sentence 定义/简介；无 analysis report 动词",
+      "pair_with": null
+    },
+    {
+      "id": "sq_competitors_in_last_report",
+      "message": "刚才报告里竞品是谁？",
+      "has_prior": true,
+      "expect_task_family": "ask",
+      "expect_discourse": "continue_prior",
+      "expect_ask_subtype": "listing",
+      "critical": false,
+      "slice": "simple_question",
+      "tags": [
+        "simple_question",
+        "listing"
+      ],
+      "notes": "竞品是谁 → simple（非 follow_up：无「基于刚才/刚才的报告」升级句式）",
+      "pair_with": null
+    },
+    {
+      "id": "fu_pricing_with_prior",
+      "message": "基于刚才结果，定价上该怎么做？",
+      "has_prior": true,
+      "expect_task_family": "advise_prior",
+      "expect_discourse": "continue_prior",
+      "expect_ask_subtype": "advice",
+      "critical": true,
+      "slice": "follow_up",
+      "tags": [
+        "follow_up",
+        "follow_up_deixis",
+        "follow_up_advice"
+      ],
+      "notes": "has_prior=true → follow_up；升级由 FollowUpService 判定，Router 只标 follow_up",
+      "pair_with": null
+    },
+    {
+      "id": "fu_based_on_this_info_ops_advice",
+      "message": "基于这个信息，如果我是产品运营，我下一步应该做什么，推进用户体验和稳固产品壁垒？",
+      "has_prior": true,
+      "expect_task_family": "advise_prior",
+      "expect_discourse": "continue_prior",
+      "expect_ask_subtype": "advice",
+      "critical": true,
+      "slice": "follow_up",
+      "tags": [
+        "follow_up",
+        "follow_up_deixis",
+        "follow_up_advice"
+      ],
+      "notes": "基于这个信息 = 指代上轮收集/分析，应短答追问而非再开一轮竞品分析",
+      "pair_with": null
+    },
+    {
+      "id": "fu_ops_advice_no_deixis",
+      "message": "如果我是产品运营，我下一步应该做什么，推进用户体验和稳固产品壁垒？",
+      "has_prior": true,
+      "expect_task_family": "advise_prior",
+      "expect_discourse": "continue_prior",
+      "expect_ask_subtype": "advice",
+      "critical": true,
+      "slice": "follow_up",
+      "tags": [
+        "follow_up",
+        "follow_up_advice"
+      ],
+      "notes": "正例：无指代词运营建议 + prior",
+      "pair_with": "ca_explicit_with_prior_still_deep"
+    },
+    {
+      "id": "ca_explicit_with_prior_still_deep",
+      "message": "帮我做滴滴出行和曹操出行的竞品分析报告",
+      "has_prior": true,
+      "expect_task_family": "analyze",
+      "expect_discourse": "new",
+      "expect_ask_subtype": null,
+      "critical": true,
+      "slice": "ca_launch",
+      "tags": [
+        "ca_launch",
+        "follow_up_negative",
+        "confusable"
+      ],
+      "notes": "反例：有 prior 仍显式竞品分析 → analyze/new",
+      "pair_with": "fu_ops_advice_no_deixis"
+    },
+    {
+      "id": "fu_pricing_no_prior",
+      "message": "基于刚才结果看定价",
+      "has_prior": false,
+      "expect_task_family": "advise_prior",
+      "expect_discourse": "continue_prior",
+      "expect_ask_subtype": "other",
+      "critical": true,
+      "slice": "follow_up",
+      "tags": [
+        "follow_up",
+        "follow_up_deixis"
+      ],
+      "notes": "has_prior=false 仍为 follow_up（no_prior 澄清路径）",
+      "pair_with": null
+    },
+    {
+      "id": "fu_continue_full_ca_report",
+      "message": "继续，出一份完整竞品分析报告",
+      "has_prior": true,
+      "expect_task_family": "advise_prior",
+      "expect_discourse": "upgrade_prior",
+      "expect_ask_subtype": null,
+      "critical": true,
+      "slice": "follow_up",
+      "tags": [
+        "follow_up",
+        "follow_up_upgrade"
+      ],
+      "notes": "正例：追问升级完整报告",
+      "pair_with": null
+    },
+    {
+      "id": "fu_supplement_pricing",
+      "message": "请补充一下刚才分析里的定价部分",
+      "has_prior": true,
+      "expect_task_family": "advise_prior",
+      "expect_discourse": "continue_prior",
+      "expect_ask_subtype": "other",
+      "critical": false,
+      "slice": "follow_up",
+      "tags": [
+        "follow_up",
+        "follow_up_deixis"
+      ],
+      "notes": "补充一下 + 刚才分析 → follow_up",
+      "pair_with": null
+    },
+    {
+      "id": "oos_weather",
+      "message": "今天天气怎么样",
+      "has_prior": false,
+      "expect_task_family": "oos",
+      "expect_discourse": "new",
+      "expect_ask_subtype": null,
+      "critical": true,
+      "slice": "out_of_scope",
+      "tags": [
+        "oos"
+      ],
+      "notes": "硬域外",
+      "pair_with": null
+    },
+    {
+      "id": "oos_leave_email",
+      "message": "帮我写一封请假邮件",
+      "has_prior": false,
+      "expect_task_family": "oos",
+      "expect_discourse": "new",
+      "expect_ask_subtype": null,
+      "critical": true,
+      "slice": "out_of_scope",
+      "tags": [
+        "oos"
+      ],
+      "notes": "请假邮件：硬域外（不依赖 Intent unsupported，避免误启 Full）",
+      "pair_with": null
+    },
+    {
+      "id": "oos_what_time",
+      "message": "现在几点了",
+      "has_prior": false,
+      "expect_task_family": "oos",
+      "expect_discourse": "new",
+      "expect_ask_subtype": null,
+      "critical": true,
+      "slice": "out_of_scope",
+      "tags": [
+        "oos"
+      ],
+      "notes": "几点了 → OOS",
+      "pair_with": null
+    },
+    {
+      "id": "oos_en_weather",
+      "message": "How's the weather today?",
+      "has_prior": false,
+      "expect_task_family": "oos",
+      "expect_discourse": "new",
+      "expect_ask_subtype": null,
+      "critical": false,
+      "slice": "out_of_scope",
+      "tags": [
+        "oos"
+      ],
+      "notes": "英文天气",
+      "pair_with": null
+    },
+    {
+      "id": "mix_collect_ca_report_materials",
+      "message": "帮我收集竞品分析报告相关资料",
+      "has_prior": false,
+      "expect_task_family": "collect",
+      "expect_discourse": "new",
+      "expect_ask_subtype": null,
+      "critical": true,
+      "slice": "research",
+      "tags": [
+        "research",
+        "confusable"
+      ],
+      "notes": "收集嵌套报告资料 → collect",
+      "pair_with": "ca_deliverable_research_then_report"
+    },
+    {
+      "id": "mix_commercial_behavior_types",
+      "message": "商业行为有哪些类型？",
+      "has_prior": false,
+      "expect_task_family": "ask",
+      "expect_discourse": "new",
+      "expect_ask_subtype": "definition",
+      "critical": true,
+      "slice": "simple_question",
+      "tags": [
+        "simple_question",
+        "confusable"
+      ],
+      "notes": "不得 research。更安全策略：simple（勿误启 Full）。simple vs OOS 待产品确认。",
+      "pair_with": null
+    },
+    {
+      "id": "res_en_research_meituan_news",
+      "message": "Please research Meituan hotel recent news",
+      "has_prior": false,
+      "expect_task_family": "collect",
+      "expect_discourse": "new",
+      "expect_ask_subtype": null,
+      "critical": false,
+      "slice": "research",
+      "tags": [
+        "research"
+      ],
+      "notes": "中英混合：EN collect/research 句，避免 LegacyBridge 默认 Full",
+      "pair_with": null
+    },
+    {
+      "id": "res_en_collect_douyin_info",
+      "message": "Collect recent public info on Douyin commercial development",
+      "has_prior": false,
+      "expect_task_family": "collect",
+      "expect_discourse": "new",
+      "expect_ask_subtype": null,
+      "critical": false,
+      "slice": "research",
+      "tags": [
+        "research"
+      ],
+      "notes": "EN collect + info → research；commercial 不单独当分析",
+      "pair_with": null
+    },
+    {
+      "id": "ca_deliverable_jingpin_diaoyan_baogao",
+      "message": "帮我完成深度的竞品调研报告，我需要针对滴滴及滴滴的竞品公司",
+      "has_prior": true,
+      "expect_task_family": "analyze",
+      "expect_discourse": "new",
+      "expect_ask_subtype": null,
+      "critical": true,
+      "slice": "ca_launch",
+      "tags": ["ca_launch", "confusable", "deliverable_semantics"],
+      "notes": "A1：竞品调研报告 → analyze（勿因「调研」误收 collect）",
+      "pair_with": "res_diaoyan_recent_dynamics_stays_collect"
+    },
+    {
+      "id": "res_diaoyan_recent_dynamics_stays_collect",
+      "message": "帮我调研一下美团酒店近期动态",
+      "has_prior": false,
+      "expect_task_family": "collect",
+      "expect_discourse": "new",
+      "expect_ask_subtype": null,
+      "critical": true,
+      "slice": "research",
+      "tags": ["research", "confusable", "deliverable_semantics"],
+      "notes": "A1 反例：裸调研+近期动态 → collect",
+      "pair_with": "ca_deliverable_jingpin_diaoyan_baogao"
+    },
+    {
+      "id": "ca_deliverable_market_research_report",
+      "message": "帮我做市场调研报告（滴滴）",
+      "has_prior": false,
+      "expect_task_family": "analyze",
+      "expect_discourse": "new",
+      "expect_ask_subtype": null,
+      "critical": true,
+      "slice": "ca_launch",
+      "tags": ["ca_launch", "deliverable_semantics"],
+      "notes": "C1：市场调研报告 → analyze",
+      "pair_with": null
+    },
+    {
+      "id": "ca_deliverable_industry_research_report",
+      "message": "行业研究报告：网约车",
+      "has_prior": false,
+      "expect_task_family": "analyze",
+      "expect_discourse": "new",
+      "expect_ask_subtype": null,
+      "critical": true,
+      "slice": "ca_launch",
+      "tags": ["ca_launch", "deliverable_semantics"],
+      "notes": "C2：行业研究报告 → analyze",
+      "pair_with": null
+    },
+    {
+      "id": "ca_deliverable_intel_report",
+      "message": "出一份竞品情报报告",
+      "has_prior": false,
+      "expect_task_family": "analyze",
+      "expect_discourse": "new",
+      "expect_ask_subtype": null,
+      "critical": true,
+      "slice": "ca_launch",
+      "tags": ["ca_launch", "confusable", "deliverable_semantics"],
+      "notes": "C3-1：竞品情报报告 → analyze",
+      "pair_with": "res_intel_digest_stays_collect"
+    },
+    {
+      "id": "res_intel_digest_stays_collect",
+      "message": "出一份竞品情报摘要",
+      "has_prior": false,
+      "expect_task_family": "collect",
+      "expect_discourse": "new",
+      "expect_ask_subtype": null,
+      "critical": true,
+      "slice": "research",
+      "tags": ["research", "confusable", "deliverable_semantics"],
+      "notes": "C3-2：竞品情报摘要 → collect",
+      "pair_with": "ca_deliverable_intel_report"
+    },
+    {
+      "id": "ca_deliverable_duibiao",
+      "message": "帮我对标一下滴滴和曹操",
+      "has_prior": false,
+      "expect_task_family": "analyze",
+      "expect_discourse": "new",
+      "expect_ask_subtype": null,
+      "critical": true,
+      "slice": "ca_launch",
+      "tags": ["ca_launch", "deliverable_semantics"],
+      "notes": "B1：对标 → analyze",
+      "pair_with": null
+    },
+    {
+      "id": "ca_deliverable_research_then_report",
+      "message": "帮我调研竞品并出报告",
+      "has_prior": false,
+      "expect_task_family": "analyze",
+      "expect_discourse": "new",
+      "expect_ask_subtype": null,
+      "critical": true,
+      "slice": "ca_launch",
+      "tags": ["ca_launch", "deliverable_semantics"],
+      "notes": "C4：调研竞品并出报告 → analyze",
+      "pair_with": "mix_collect_ca_report_materials"
+    },
+    {
+      "id": "ca_deliverable_en_competitor_research_report",
+      "message": "Write a competitor research report for Didi vs peers",
+      "has_prior": false,
+      "expect_task_family": "analyze",
+      "expect_discourse": "new",
+      "expect_ask_subtype": null,
+      "critical": true,
+      "slice": "ca_launch",
+      "tags": ["ca_launch", "deliverable_semantics"],
+      "notes": "B2：competitor research report → analyze",
+      "pair_with": "res_en_research_meituan_news"
+    }
+  ]
+}

@@ -86,7 +86,7 @@ def build_flat_insight_prompt(
     gaps_json: str,
 ) -> str:
     return f"""## 分析场景
-- 我方: {our_company} / {product}
+- 分析方: {our_company} / {product}
 - 竞品: {competitor_company} / {product}
 - 目标: {objective}
 
@@ -118,7 +118,7 @@ def build_insight_prompt(
     gaps_json: str,
 ) -> str:
     return f"""## 分析场景
-- 我方: {our_company} / {product}
+- 分析方: {our_company} / {product}
 - 竞品: {competitor_company} / {product}
 - 目标: {objective}
 

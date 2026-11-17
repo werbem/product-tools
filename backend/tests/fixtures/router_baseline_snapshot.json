@@ -1,0 +1,68 @@
+{
+  "frozen_at": "2026-09-06T08:24:43.912706+00:00",
+  "phase": 0,
+  "fixture": "tests/fixtures/router_goldens.json",
+  "case_count": 34,
+  "critical_count": 24,
+  "critical_ids": [
+    "ca_commercial_behavior_report",
+    "ca_feizhu_meituan_strategy",
+    "ca_vs_full_report",
+    "ca_en_commercial_behavior",
+    "ca_analyze_and_collect_support",
+    "res_douyin_collect",
+    "res_ctrip_membership_materials",
+    "res_meituan_survey_dynamics",
+    "iq_meituan_recent_changes",
+    "sq_ctrip_membership_how",
+    "sq_feizhu_what_company",
+    "sq_longteng_who",
+    "sq_yuetu_oneliner",
+    "fu_pricing_with_prior",
+    "fu_based_on_this_info_ops_advice",
+    "fu_ops_advice_no_deixis",
+    "ca_explicit_with_prior_still_deep",
+    "fu_pricing_no_prior",
+    "fu_continue_full_ca_report",
+    "oos_weather",
+    "oos_leave_email",
+    "oos_what_time",
+    "mix_collect_ca_report_materials",
+    "mix_commercial_behavior_types"
+  ],
+  "critical_failures": [],
+  "overall_passed": 34,
+  "overall_accuracy": 1.0,
+  "overall_threshold": 0.95,
+  "gates_ok": true,
+  "by_workflow_expect": {
+    "competitive_analysis": 6,
+    "research": 6,
+    "information_query": 3,
+    "simple_question": 9,
+    "follow_up": 6,
+    "out_of_scope": 4
+  },
+  "by_workflow_ok": {
+    "competitive_analysis": 6,
+    "research": 6,
+    "information_query": 3,
+    "simple_question": 9,
+    "follow_up": 6,
+    "out_of_scope": 4
+  },
+  "by_slice": {
+    "ca_launch": 6,
+    "research": 6,
+    "information_query": 3,
+    "simple_question": 9,
+    "follow_up": 6,
+    "out_of_scope": 4
+  },
+  "mismatches": [],
+  "known_debt": [
+    "legacy_bridge_default_deep_without_launch_signal",
+    "router_semantic_regex_overload",
+    "entity_fill_does_not_imply_deep_launch"
+  ]
+}

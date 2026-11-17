@@ -138,7 +138,7 @@ def build_compare_stub_from_evidence(
             ).model_dump()
         )
 
-    our = our_company or "我方"
+    our = our_company or "分析方"
     comp = competitor_company or "竞品"
     prod = product or "产品"
     positioning = {
@@ -183,7 +183,7 @@ def build_strategy_stub_from_evidence(
 ) -> dict[str, Any]:
     """Minimal SWOT + 2–3 recommendations from evidence (never silent {})."""
     items = _items_from_bundle(evidence_bundle, cap=12)
-    our = our_company or "我方"
+    our = our_company or "分析方"
     comp = competitor_company or "竞品"
 
     strengths: list[SWOTItem] = []

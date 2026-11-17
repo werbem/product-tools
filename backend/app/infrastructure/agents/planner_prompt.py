@@ -78,7 +78,7 @@ def build_user_prompt(
 
     prompt = f"""## 分析需求
 
-- **我方公司**: {our_company}
+- **分析公司**: {our_company}
 - **竞品公司**: {competitor_company}
 - **分析产品**: {product}
 - **分析目标**: {obj_label}

@@ -86,7 +86,13 @@ export function subscribeToConversation(
     es.addEventListener(eventName, (e) => dispatch(eventName, e as MessageEvent));
   }
 
-  es.onerror = (err) => handlers.onError?.(err);
+  es.onerror = (err) => {
+    // Browser EventSource fires onerror on transient reconnects; ignore while reconnecting.
+    if (es.readyState === EventSource.CONNECTING) {
+      return;
+    }
+    handlers.onError?.(err);
+  };
 
   return () => es.close();
 }

@@ -78,7 +78,7 @@ async def get_task_progress(task_id: UUID) -> TaskProgressResponse:
         status = "completed"
         progress_value = 100.0
         current_agent = "completed"
-    elif entry_status == "failed":
+    elif entry_status in {"failed", "cancelled"}:
         status = "failed"
         current_agent = current_phase or "failed"
     elif current_phase == "collection_completed":
@@ -218,6 +218,68 @@ async def stream_task_progress(task_id: UUID):
             "X-Accel-Buffering": "no",
         },
     )
+
+
+@router.post("/{task_id}/cancel")
+async def cancel_task(task_id: UUID) -> dict:
+    """Cancel a stuck or running Deep/Collection task and free the busy gate."""
+    from app.infrastructure.persistence import task_report_runtime
+    from app.interfaces.api.dependencies.workflow import (
+        get_collection_workflow_launcher,
+        get_workflow_launcher,
+    )
+
+    task_str = str(task_id)
+    entry = task_report_runtime.get_tasks().get(task_str)
+    if not entry:
+        raise HTTPException(status_code=404, detail="任务不存在")
+
+    prev = str(entry.get("status") or "").lower()
+    if prev in {"completed", "failed", "cancelled"}:
+        return {
+            "task_id": task_str,
+            "status": prev,
+            "already_terminal": True,
+        }
+
+    deep = get_workflow_launcher()
+    collection = get_collection_workflow_launcher()
+    cancelled_in_process = False
+    for launcher in (deep, collection):
+        cancel_fn = getattr(launcher, "cancel_running_task", None)
+        if callable(cancel_fn) and cancel_fn(task_str):
+            cancelled_in_process = True
+
+    updated = task_report_runtime.mark_task_terminal(
+        task_str,
+        status="cancelled",
+        error="cancelled_by_user",
+    )
+    conversation_id = (updated or entry).get("conversation_id")
+    if conversation_id:
+        try:
+            from app.application.dto.conversation_event_dto import ConversationEvent
+            from app.infrastructure.events.conversation_event_bus import (
+                get_conversation_event_bus,
+            )
+
+            await get_conversation_event_bus().publish(
+                ConversationEvent(
+                    event="analysis_failed",
+                    conversation_id=str(conversation_id),
+                    task_id=task_str,
+                    data={"error": "cancelled_by_user", "cancelled": True},
+                ),
+            )
+        except Exception:
+            pass
+
+    return {
+        "task_id": task_str,
+        "status": "cancelled",
+        "already_terminal": False,
+        "cancelled_in_process": cancelled_in_process,
+    }
 
 
 @router.patch("/{task_id}/decision")

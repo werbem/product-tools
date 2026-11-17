@@ -1,21 +1,23 @@
-"""Router golden-set evaluator (Phase 2 Step 6).
+"""Router golden-set evaluator (Phase 2 Step 6 / Decision Arch Phase 0).
 
 Gates
 -----
 - ``CRITICAL_ACCURACY``: every ``critical: true`` case must match (100%).
 - ``OVERALL_ACCURACY_THRESHOLD``: all cases, default 0.95.
+- Phase 0: every case has ``slice`` + ``tags``; required slices non-empty.
 
 How to add a golden
 -------------------
 1. Append an object to ``backend/tests/fixtures/router_goldens.json`` ``cases``.
-2. Required fields: ``id``, ``message``, ``expect_workflow_type``.
+2. Required fields: ``id``, ``message``, ``expect_workflow_type``, ``slice``, ``tags``.
 3. Optional: ``critical``, ``notes``, ``intent_override``, ``context.has_prior_task``,
-   ``needs_product_confirm``.
+   ``needs_product_confirm``, ``baseline_exception``.
 4. ``intent_override``: inject a pre-extracted Intent (company / competitors) so
    the set does not call a real LLM. Omit or ``null`` → heuristic minimal Intent.
 5. ``context.has_prior_task`` maps to ``ConversationRoutingContext.has_prior_analysis``.
 6. Dump first, then freeze ``expect_workflow_type`` against current Router behavior
    (or the safer label if current would mis-start Full). Put rationale in ``notes``.
+7. New rules after Phase 2 must ship with paired +/- goldens (Principle 5).
 
 How to run
 ----------
@@ -55,6 +57,17 @@ WORKFLOW_TYPES = frozenset(
         "out_of_scope",
     }
 )
+REQUIRED_SLICES = frozenset(
+    {
+        "ca_launch",
+        "research",
+        "information_query",
+        "simple_question",
+        "follow_up",
+        "out_of_scope",
+    }
+)
+MIN_CASES_PER_SLICE = 1
 
 
 def _load_fixture() -> dict[str, Any]:
@@ -102,6 +115,7 @@ def _mismatch_line(case: dict[str, Any], decision: RoutingDecision) -> str:
         f"id={case.get('id')} expect={case.get('expect_workflow_type')} "
         f"actual={decision.workflow_type} reason={decision.reason!r} "
         f"critical={bool(case.get('critical'))} "
+        f"slice={case.get('slice')!r} "
         f"message={case.get('message')!r}"
     )
 
@@ -129,6 +143,26 @@ class TestRouterGoldensMeta:
         for case in golden_cases:
             assert case["expect_workflow_type"] in WORKFLOW_TYPES
             assert str(case["message"]).strip()
+
+    def test_phase0_slice_and_tags(self, golden_cases: list[dict[str, Any]]) -> None:
+        """Phase 0: additive slice/tags present; required slices non-empty."""
+        by_slice: Counter[str] = Counter()
+        for case in golden_cases:
+            sl = case.get("slice")
+            tags = case.get("tags")
+            assert isinstance(sl, str) and sl.strip(), f"{case.get('id')} missing slice"
+            assert isinstance(tags, list) and tags, f"{case.get('id')} missing tags"
+            assert all(isinstance(t, str) and t for t in tags), (
+                f"{case.get('id')} invalid tags"
+            )
+            by_slice[sl] += 1
+        missing_slices = REQUIRED_SLICES - set(by_slice)
+        assert not missing_slices, f"required slices empty: {sorted(missing_slices)}"
+        thin = {
+            sl: n for sl, n in by_slice.items()
+            if sl in REQUIRED_SLICES and n < MIN_CASES_PER_SLICE
+        }
+        assert not thin, f"slices below minimum coverage: {thin}"
 
 
 class TestRouterGoldensCritical:

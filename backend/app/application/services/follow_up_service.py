@@ -300,6 +300,22 @@ class FollowUpService:
                 metadata={"conversation_id": conversation_id, "reason": "follow_up_no_prior"},
             )
 
+        memory_for_prompt = project_memory
+        if project_memory is not None:
+            try:
+                from dataclasses import replace
+
+                from app.application.services.memory_findings_index import memory_findings_index
+                from app.domain.entities.project_memory import ProjectMemory
+
+                if isinstance(project_memory, ProjectMemory):
+                    ranked = await memory_findings_index.rank_findings(
+                        project_memory, query, limit=5,
+                    )
+                    memory_for_prompt = replace(project_memory, key_findings=ranked)
+            except Exception:
+                memory_for_prompt = project_memory
+
         context_summary = self._build_context_summary(
             messages=messages,
             prior_task_id=prior_task_id,
@@ -307,7 +323,7 @@ class FollowUpService:
             prior_assistant_blob=str(refs.get("prior_assistant_blob") or ""),
             intent=intent,
             recovered_intent=refs.get("recovered_intent"),
-            project_memory=project_memory,
+            project_memory=memory_for_prompt,
             knowledge_notes_block=knowledge_notes_block,
         )
 

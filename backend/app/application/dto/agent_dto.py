@@ -151,6 +151,9 @@ class QualityReport(BaseModel):
     evidence_cutoff_date: str = ""
     date_enrichment_attempted: int = 0
     date_enrichment_succeeded: int = 0
+    # When in-window set is empty, newest expired items may be restored
+    stale_fallback_used: bool = False
+    stale_fallback_count: int = 0
 
 
 class ResearchInput(BaseModel):
@@ -158,6 +161,12 @@ class ResearchInput(BaseModel):
     our_company: str = ""
     competitor_company: str = ""
     product: str = ""
+    # Original user ask (optional.raw_message / scene) for search retry composition
+    user_query: str = ""
+    # Evidence Reuse V1 (Step 2A) — optional context; empty = reuse skipped
+    project_id: Optional[str] = None
+    workflow_kind: Optional[str] = None
+    competitors: list[str] = Field(default_factory=list)
     time_budget_seconds: float = 300.0
     max_source_types: int = 3
     max_results_per_source: int = 5

@@ -78,8 +78,18 @@ FAST_SEGMENT_PROGRESS: dict[int, float] = {
 
 MERGE_BUFFER_S = 5.0
 DEFAULT_SEGMENT_LLM_TIMEOUT_S = 55.0
+SEGMENT_RETRY_TIMEOUT_S = 30.0
+SEGMENT_RETRY_MIN_REMAINING_S = 12.0
+SEGMENT_RETRY_WORD_TARGETS: dict[int, int] = {1: 400, 2: 500, 3: 350}
+EVIDENCE_COMPACT_MAX_ITEMS = 12
+EVIDENCE_COMPACT_CONTENT_CHARS = 160
+EVIDENCE_RETRY_MAX_ITEMS = 8
+EVIDENCE_RETRY_CONTENT_CHARS = 120
 FAST_GENERATION_NOTE = (
     "快速模式：未执行对比/洞察/战略分析，对比章节基于证据整理。"
+)
+SEGMENT_EVIDENCE_FALLBACK_NOTE = (
+    "⚠️ 本章因生成超时，已降级为证据要点拼装（非完整 LLM 分析）。"
 )
 
 
@@ -98,7 +108,17 @@ class ReportAgent(BaseAgent[ReportInput, ReportOutput]):
 
     @classmethod
     def _prepare_markdown(cls, md: str) -> str:
-        return cls.normalize_table_breaks(md or "")
+        return cls.normalize_table_breaks(cls.strip_party_role_labels(md or ""))
+
+    @staticmethod
+    def strip_party_role_labels(md: str) -> str:
+        """Remove leftover 「（我方）/（分析方）/（竞品）」 tags from company names."""
+        text = md or ""
+        # Fullwidth and ASCII parentheses
+        for label in ("我方", "分析方", "竞品"):
+            text = text.replace(f"（{label}）", "")
+            text = text.replace(f"({label})", "")
+        return text
 
     @property
     def agent_name(self) -> str:
@@ -111,14 +131,22 @@ class ReportAgent(BaseAgent[ReportInput, ReportOutput]):
     def build_timeout_fallback(self, input_data: ReportInput) -> AgentResult:
         """Non-LLM fallback when the report node hits its hard timeout budget."""
         if getattr(input_data, "fast_mode", False):
+            evidence_json = self._serialize_evidence(
+                input_data.evidence_bundle,
+                max_items=EVIDENCE_COMPACT_MAX_ITEMS,
+                content_chars=EVIDENCE_COMPACT_CONTENT_CHARS,
+            )
             segments = [
-                self._build_segment_timeout_fallback(n, FAST_REPORT_SEGMENTS[n])
+                self._build_segment_evidence_fallback(
+                    n, FAST_REPORT_SEGMENTS[n], input_data, evidence_json,
+                )
                 for n in (1, 2, 3)
             ]
             fallback_md = self._merge_segments(input_data, segments)
             metadata_extra = {
                 "generation_mode": "fast_segmented",
                 "segment_timeouts": [1, 2, 3],
+                "segment_evidence_fallback": [1, 2, 3],
                 "report_timeout_fallback": True,
             }
         else:
@@ -153,8 +181,16 @@ class ReportAgent(BaseAgent[ReportInput, ReportOutput]):
                 "llm_prompt_tokens": 0,
                 "llm_completion_tokens": 0,
                 "fast_mode": bool(getattr(input_data, "fast_mode", False)),
-                "generation_note": FAST_GENERATION_NOTE if getattr(input_data, "fast_mode", False) else None,
-                **metadata_extra,
+                "generation_note": (
+                    "快速模式：报告总超时，各章已降级为证据要点拼装。"
+                    if getattr(input_data, "fast_mode", False)
+                    else (
+                        "完整模式报告超时降级：正文为证据摘要拼装，非标准 13 章结构。"
+                        if metadata_extra.get("report_timeout_fallback")
+                        else None
+                    )
+                ),
+                **{k: v for k, v in metadata_extra.items() if k != "generation_note"},
             },
         )
         return AgentResult(
@@ -190,7 +226,7 @@ class ReportAgent(BaseAgent[ReportInput, ReportOutput]):
             gen_kwargs: dict = {
                 "system_prompt": SYSTEM_PROMPT,
                 "user_prompt": build_report_prompt(
-                    our_company=input_data.our_company if hasattr(input_data, 'our_company') else "我方",
+                    our_company=input_data.our_company if hasattr(input_data, 'our_company') else "分析方",
                     competitor_company=input_data.competitor_company if hasattr(input_data, 'competitor_company') else "竞品",
                     product=input_data.product if hasattr(input_data, 'product') else "产品",
                     objective=input_data.objective if hasattr(input_data, 'objective') else "competitive_defense",
@@ -347,14 +383,27 @@ class ReportAgent(BaseAgent[ReportInput, ReportOutput]):
         )
         start = time.monotonic()
         segment_timeouts: list[int] = []
+        segment_retries: list[int] = []
+        segment_evidence_fallback: list[int] = []
         segment_markdowns: list[str] = []
         previous_summary: str | None = None
         total_prompt_tokens = 0
         total_completion_tokens = 0
 
-        evidence_json = self._serialize_evidence(input_data.evidence_bundle)
-        gap_json = self._serialize_gap(input_data.gap_analysis)
-        strategy_json = self._serialize_strategy(input_data.strategic_insights)
+        evidence_json = self._serialize_evidence(
+            input_data.evidence_bundle,
+            max_items=EVIDENCE_COMPACT_MAX_ITEMS,
+            content_chars=EVIDENCE_COMPACT_CONTENT_CHARS,
+        )
+        evidence_json_retry = self._serialize_evidence(
+            input_data.evidence_bundle,
+            max_items=EVIDENCE_RETRY_MAX_ITEMS,
+            content_chars=EVIDENCE_RETRY_CONTENT_CHARS,
+        )
+        gap_json = self._compact_agent_json(self._serialize_gap(input_data.gap_analysis))
+        strategy_json = self._compact_agent_json(
+            self._serialize_strategy(input_data.strategic_insights)
+        )
 
         for seg_num in (1, 2, 3):
             self._touch_segment_progress(ctx.task_id, seg_num)
@@ -362,12 +411,16 @@ class ReportAgent(BaseAgent[ReportInput, ReportOutput]):
             remaining = total_budget - elapsed - MERGE_BUFFER_S
             if remaining <= 8.0:
                 segment_markdowns.append(
-                    self._build_segment_timeout_fallback(seg_num, FAST_REPORT_SEGMENTS[seg_num])
+                    self._build_segment_evidence_fallback(
+                        seg_num, FAST_REPORT_SEGMENTS[seg_num], input_data, evidence_json,
+                    )
                 )
                 segment_timeouts.append(seg_num)
+                segment_evidence_fallback.append(seg_num)
                 continue
 
             segment_budget = min(segment_cap, max(8.0, remaining - 8.0))
+            md: str | None = None
             try:
                 md, pt, ct = await asyncio.wait_for(
                     self._generate_segment(
@@ -386,11 +439,57 @@ class ReportAgent(BaseAgent[ReportInput, ReportOutput]):
             except asyncio.CancelledError:
                 raise
             except Exception:
-                md = self._build_segment_timeout_fallback(seg_num, FAST_REPORT_SEGMENTS[seg_num])
+                md = None
+
+            if md is None:
+                # P0: one short retry with tighter prompt / lower word target
+                elapsed = time.monotonic() - start
+                remaining = total_budget - elapsed - MERGE_BUFFER_S
+                if remaining >= SEGMENT_RETRY_MIN_REMAINING_S:
+                    retry_budget = min(
+                        SEGMENT_RETRY_TIMEOUT_S,
+                        max(8.0, remaining - 4.0),
+                    )
+                    segment_retries.append(seg_num)
+                    try:
+                        md, pt, ct = await asyncio.wait_for(
+                            self._generate_segment(
+                                input_data,
+                                seg_num,
+                                evidence_json_retry,
+                                gap_json,
+                                strategy_json,
+                                previous_summary,
+                                retry_budget,
+                                word_target=SEGMENT_RETRY_WORD_TARGETS.get(seg_num),
+                            ),
+                            timeout=retry_budget,
+                        )
+                        total_prompt_tokens += pt
+                        total_completion_tokens += ct
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception:
+                        md = None
+
+            if md is None:
+                # P1: evidence-assembled chapters instead of empty timeout stub
+                md = self._build_segment_evidence_fallback(
+                    seg_num, FAST_REPORT_SEGMENTS[seg_num], input_data, evidence_json,
+                )
                 segment_timeouts.append(seg_num)
+                segment_evidence_fallback.append(seg_num)
 
             segment_markdowns.append(md)
             previous_summary = self._summarize_segment(md)
+
+        note = FAST_GENERATION_NOTE
+        if segment_evidence_fallback:
+            note = (
+                f"{FAST_GENERATION_NOTE} "
+                f"段 {','.join(str(n) for n in segment_evidence_fallback)} "
+                "已降级为证据要点拼装。"
+            )
 
         markdown_content = self._merge_segments(input_data, segment_markdowns)
         return self._finalize_report_document(
@@ -402,10 +501,17 @@ class ReportAgent(BaseAgent[ReportInput, ReportOutput]):
             extra_metadata={
                 "generation_mode": "fast_segmented",
                 "segment_timeouts": segment_timeouts,
+                "segment_retries": segment_retries,
+                "segment_evidence_fallback": segment_evidence_fallback,
                 "fast_mode": True,
-                "generation_note": FAST_GENERATION_NOTE,
+                "generation_note": note,
             },
-            phase_extra={"segmented": True, "segment_timeouts": segment_timeouts},
+            phase_extra={
+                "segmented": True,
+                "segment_timeouts": segment_timeouts,
+                "segment_retries": segment_retries,
+                "segment_evidence_fallback": segment_evidence_fallback,
+            },
         )
 
     async def _generate_segment(
@@ -417,10 +523,12 @@ class ReportAgent(BaseAgent[ReportInput, ReportOutput]):
         strategy_json: str,
         previous_summary: str | None,
         llm_timeout: float,
+        *,
+        word_target: int | None = None,
     ) -> tuple[str, int, int]:
         user_prompt = build_report_prompt_segment(
             segment=segment,  # type: ignore[arg-type]
-            our_company=input_data.our_company or "我方",
+            our_company=input_data.our_company or "分析方",
             competitor_company=input_data.competitor_company or "竞品",
             product=input_data.product or "产品",
             objective=input_data.objective or "competitive_defense",
@@ -429,7 +537,7 @@ class ReportAgent(BaseAgent[ReportInput, ReportOutput]):
             strategy_json=strategy_json,
             fast_mode=True,
             previous_segments_summary=previous_summary,
-            word_target=SEGMENT_WORD_TARGETS.get(segment, 800),  # type: ignore[arg-type]
+            word_target=word_target or SEGMENT_WORD_TARGETS.get(segment, 800),  # type: ignore[arg-type]
             memory_notes_context=getattr(input_data, "memory_notes_context", None),
         )
         llm_timeout = min(llm_timeout, DEFAULT_SEGMENT_LLM_TIMEOUT_S)
@@ -453,18 +561,107 @@ class ReportAgent(BaseAgent[ReportInput, ReportOutput]):
             text = text.rsplit("```", 1)[0]
         return text.strip()
 
-    @staticmethod
+    @classmethod
     def _build_segment_timeout_fallback(
+        cls,
         segment: int,
         section_defs: list[tuple[str, str]],
     ) -> str:
+        """Legacy empty stub — prefer ``_build_segment_evidence_fallback``."""
         lines: list[str] = []
         for title, _ in section_defs:
             lines.append(f"## {title}")
             lines.append("")
-            lines.append("> 本章生成超时，请稍后重试或切换完整模式。")
+            lines.append(f"> {SEGMENT_EVIDENCE_FALLBACK_NOTE}")
+            lines.append("")
+            lines.append("- 暂无可用公开证据条目，请稍后重试或切换完整模式。")
             lines.append("")
         return "\n".join(lines).strip()
+
+    @classmethod
+    def _build_segment_evidence_fallback(
+        cls,
+        segment: int,
+        section_defs: list[tuple[str, str]],
+        input_data: ReportInput,
+        evidence_json: str,
+    ) -> str:
+        """P1: assemble readable chapter stubs from evidence instead of empty timeout text."""
+        our = getattr(input_data, "our_company", None) or "分析方"
+        comp = getattr(input_data, "competitor_company", None) or "竞品"
+        product = getattr(input_data, "product", None) or "产品"
+        bullets = cls._evidence_bullet_lines(evidence_json, limit=8)
+        lines: list[str] = []
+        for idx, (title, _) in enumerate(section_defs):
+            lines.append(f"## {title}")
+            lines.append("")
+            lines.append(f"> {SEGMENT_EVIDENCE_FALLBACK_NOTE}")
+            lines.append("")
+            lines.append(f"- **分析范围**：{our} vs {comp} · {product}")
+            if bullets:
+                # Rotate evidence so chapters are not identical walls of text
+                start = (idx * 2) % len(bullets)
+                picked = bullets[start:] + bullets[:start]
+                for b in picked[: min(5, len(bullets))]:
+                    lines.append(f"- {b}")
+            else:
+                lines.append("- 暂无可用公开证据条目，请稍后重试或切换完整模式。")
+            if segment == 3 and idx == len(section_defs) - 1:
+                lines.append("- **下一步**：可在完整模式下重跑以生成 SWOT / 路线图细化建议。")
+            lines.append("")
+        return "\n".join(lines).strip()
+
+    @staticmethod
+    def _evidence_bullet_lines(evidence_json: str, *, limit: int = 8) -> list[str]:
+        try:
+            ev = json.loads(evidence_json) if isinstance(evidence_json, str) else evidence_json
+        except Exception:
+            return []
+        items: list[Any]
+        if isinstance(ev, list):
+            items = ev
+        elif isinstance(ev, dict):
+            items = list(ev.get("evidence_items") or ev.get("evidence_summary") or [])
+        else:
+            return []
+        out: list[str] = []
+        for item in items[:limit]:
+            if isinstance(item, dict):
+                title = str(item.get("title") or "").strip()
+                content = str(item.get("content") or "").strip()
+                source = str(item.get("source") or "").strip()
+                snippet = content[:120] if content else ""
+                if title and snippet:
+                    line = f"[基于证据整理] {title}：{snippet}"
+                elif title:
+                    line = f"[基于证据整理] {title}"
+                elif snippet:
+                    line = f"[基于证据整理] {snippet}"
+                else:
+                    continue
+                if source:
+                    line = f"{line}（{source}）"
+                out.append(line)
+            else:
+                text = str(item).strip()
+                if text:
+                    out.append(f"[基于证据整理] {text[:140]}")
+        return out
+
+    @staticmethod
+    def _compact_agent_json(raw: str, *, max_chars: int = 1200) -> str:
+        """Shrink gap/strategy JSON for fast prompts (often stub-heavy)."""
+        text = (raw or "").strip() or "{}"
+        if len(text) <= max_chars:
+            return text
+        try:
+            data = json.loads(text)
+            compact = json.dumps(data, ensure_ascii=False, separators=(",", ":"))
+            if len(compact) <= max_chars:
+                return compact
+            return compact[: max_chars - 3] + "..."
+        except Exception:
+            return text[: max_chars - 3] + "..."
 
     @staticmethod
     def _summarize_segment(markdown: str, max_chars: int = 400) -> str:
@@ -478,7 +675,7 @@ class ReportAgent(BaseAgent[ReportInput, ReportOutput]):
         now = datetime.utcnow().strftime("%Y-%m-%d")
         header = (
             f"# 互联网产品竞品分析报告\n\n"
-            f"> **我方**：{input_data.our_company or '我方'} | "
+            f"> **分析方**：{input_data.our_company or '分析方'} | "
             f"**竞品**：{input_data.competitor_company or '竞品'} | "
             f"**产品**：{input_data.product or '产品'} | **日期**：{now}\n"
         )
@@ -587,25 +784,27 @@ class ReportAgent(BaseAgent[ReportInput, ReportOutput]):
     # ── Serialization helpers ──
 
     @classmethod
-    def _serialize_evidence(cls, eb) -> str:
+    def _serialize_evidence(
+        cls,
+        eb,
+        *,
+        max_items: int = 30,
+        content_chars: int = 300,
+    ) -> str:
         """Serialize evidence to JSON for LLM prompt."""
         items = []
         evidence_items = (
             eb.get("evidence_items", []) if isinstance(eb, dict)
             else getattr(eb, "evidence_items", [])
         )
-        sources_used = (
-            eb.get("sources_used", []) if isinstance(eb, dict)
-            else getattr(eb, "sources_used", [])
-        )
-        for item in evidence_items[:30]:  # top 30 evidence items
+        for item in evidence_items[:max_items]:
             if isinstance(item, dict):
                 items.append({
                     "id": item.get("id", ""),
                     "title": item.get("title", ""),
                     "source": item.get("source", ""),
                     "url": item.get("url", ""),
-                    "content": (item.get("content", "") or "")[:300],
+                    "content": (item.get("content", "") or "")[:content_chars],
                     "category": item.get("category", ""),
                     "confidence": item.get("confidence", ""),
                     "date": item.get("date", ""),
@@ -617,12 +816,15 @@ class ReportAgent(BaseAgent[ReportInput, ReportOutput]):
                     "title": getattr(item, "title", ""),
                     "source": getattr(item, "source", ""),
                     "url": getattr(item, "url", ""),
-                    "content": (getattr(item, "content", "") or "")[:300],
+                    "content": (getattr(item, "content", "") or "")[:content_chars],
                     "category": getattr(item, "category", ""),
                     "confidence": getattr(item, "confidence", ""),
                     "date": getattr(item, "date", ""),
                     "temporal_level": cls._resolve_temporal_level(item),
                 })
+        # Compact JSON for fast prompts (less tokens → less timeout risk)
+        if max_items <= EVIDENCE_COMPACT_MAX_ITEMS:
+            return json.dumps(items, ensure_ascii=False, separators=(",", ":"))
         return json.dumps(items, ensure_ascii=False, indent=2)
 
     @classmethod
@@ -883,7 +1085,7 @@ class ReportAgent(BaseAgent[ReportInput, ReportOutput]):
     @classmethod
     def _build_fallback_report(cls, input_data, evidence_json, gap_json, strategy_json) -> str:
         """Generate a minimal report from available data without LLM."""
-        our = getattr(input_data, "our_company", "") or "我方"
+        our = getattr(input_data, "our_company", "") or "分析方"
         comp = getattr(input_data, "competitor_company", "") or "竞品"
         prod = getattr(input_data, "product", "") or "产品"
         obj = getattr(input_data, "objective", "") or "竞品分析"
@@ -895,7 +1097,11 @@ class ReportAgent(BaseAgent[ReportInput, ReportOutput]):
             f"**分析目标**: {obj}",
             f"**生成日期**: {datetime.utcnow():%Y-%m-%d %H:%M}",
             "",
-            "> ℹ️ 本报告由 AI Agent 自动生成。数据来源包括公开信息和 AI 分析。",
+            "> ⚠️ **降级说明**：对比 / 战略 / 报告生成环节因超时未完成完整 13 章竞品分析。"
+            "下文基于已收集的公开证据摘要拼装，结构接近「信息收集+要点」，"
+            "**不是**标准十三章竞品报告。建议在非高峰时段用完整模式重跑。",
+            "",
+            "> ℹ️ 数据来源包括公开检索证据；定位/差距/建议若标注「待完整对比」，表示来自超时 stub。",
             "",
             "## 一、证据收集概况",
             "",
@@ -927,7 +1133,7 @@ class ReportAgent(BaseAgent[ReportInput, ReportOutput]):
             if positioning and isinstance(positioning, dict):
                 our_pos = positioning.get("our_positioning", "未分析")
                 comp_pos = positioning.get("competitor_positioning", "未分析")
-                lines.append(f"- 我方定位: {str(our_pos)[:200]}")
+                lines.append(f"- 分析方定位: {str(our_pos)[:200]}")
                 lines.append(f"- 竞品定位: {str(comp_pos)[:200]}")
             caps = gap.get("capability_gaps", [])
             if caps:
@@ -1051,7 +1257,7 @@ class ReportAgent(BaseAgent[ReportInput, ReportOutput]):
         word = WordBuilder()
         now = datetime.utcnow().strftime("%Y-%m-%d %H:%M")
         word.add_title("互联网产品竞品分析报告")
-        word.add_meta(f"我方：{input_data.our_company} | 竞品：{input_data.competitor_company} | 产品：{input_data.product}")
+        word.add_meta(f"分析方：{input_data.our_company} | 竞品：{input_data.competitor_company} | 产品：{input_data.product}")
         word.add_meta(f"生成日期：{now}")
         word.page_break()
 
@@ -1062,7 +1268,7 @@ class ReportAgent(BaseAgent[ReportInput, ReportOutput]):
             # Skip cover elements
             if stripped.startswith("# ") and "竞品分析报告" in stripped:
                 continue
-            if stripped.startswith("> **我方**"):
+            if stripped.startswith("> **分析方**") or stripped.startswith("> **我方**"):
                 continue
             if not stripped:
                 continue
@@ -1093,18 +1299,30 @@ class ReportAgent(BaseAgent[ReportInput, ReportOutput]):
 
     @staticmethod
     def _extract_sections(md_text: str) -> list[ReportSectionDTO]:
-        """Extract report sections from Markdown for structured output."""
+        """Extract report sections from Markdown for structured output.
+
+        Prefer the standard 13-chapter template when those headings exist.
+        For timeout/fallback bodies that use a different outline, parse actual
+        ``##`` headings so the TOC matches the visible markdown.
+        """
+        md_text = md_text or ""
+        matched = 0
+        for section_title, _section_id in SECTION_DEFS:
+            if re.search(rf"^##\s+{re.escape(section_title)}\s*$", md_text, re.MULTILINE):
+                matched += 1
+
+        # Fallback / stub reports typically match 0 standard chapters
+        if matched < 3:
+            return ReportAgent._extract_sections_from_headings(md_text)
+
         sections: list[ReportSectionDTO] = []
         order = 0
-
         for section_title, section_id in SECTION_DEFS:
             order += 1
-            # Find section content
             pattern = rf"## {re.escape(section_title)}"
             match = re.search(pattern, md_text)
             if match:
                 start = match.start()
-                # Find next ## section or end
                 next_match = re.search(r"\n## ", md_text[start + len(section_title):])
                 if next_match:
                     content = md_text[start:start + len(section_title) + next_match.start()]
@@ -1117,11 +1335,28 @@ class ReportAgent(BaseAgent[ReportInput, ReportOutput]):
 
             sections.append(ReportSectionDTO(
                 title=section_title,
-                content=content[:2000],  # truncate for DTO
+                content=content[:2000],
                 order=order,
                 word_count=word_count,
             ))
+        return sections
 
+    @staticmethod
+    def _extract_sections_from_headings(md_text: str) -> list[ReportSectionDTO]:
+        """Build TOC from whatever ``##`` headings exist in the markdown body."""
+        sections: list[ReportSectionDTO] = []
+        matches = list(re.finditer(r"^##\s+(.+?)\s*$", md_text or "", re.MULTILINE))
+        for i, match in enumerate(matches):
+            title = match.group(1).strip()
+            start = match.start()
+            end = matches[i + 1].start() if i + 1 < len(matches) else len(md_text)
+            content = md_text[start:end]
+            sections.append(ReportSectionDTO(
+                title=title,
+                content=content[:2000],
+                order=i + 1,
+                word_count=len(content.replace("\n", "")),
+            ))
         return sections
 
 

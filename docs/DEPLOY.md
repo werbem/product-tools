@@ -93,6 +93,7 @@ pnpm build && pnpm start
 4. **真实 LLM**：验收与生产需配置 `OPENAI_API_KEY`；无 Key 时可能进入 Demo 模式。
 5. **Report metadata**：新报告在 `GET /api/reports/{id}` 的 `metadata` 字段含 `generation_mode`、`analysis_mode`；旧报告无此字段。
 6. **Intent 超时**：交互侧 Intent 使用独立较短超时（`INTENT_LLM_TIMEOUT_S`，默认 20s），与 Deep 内 Research/Report 长超时分离。
+7. **Knowledge 向量检索**：笔记支持 OpenAI-compatible embeddings 混合检索（`EMBEDDING_MODEL` / `EMBEDDING_TIMEOUT_S`）；失败时自动降级为关键词检索，不阻断 CRUD。
 
 ## 快速验收
 

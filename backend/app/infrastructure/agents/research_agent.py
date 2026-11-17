@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -58,6 +59,17 @@ def _dget(obj, key, default=None):
     return getattr(obj, key, default)
 
 
+@dataclass
+class _ReusePrep:
+    """Internal reuse decision for ResearchAgent (Step 2A/2B)."""
+
+    mode: str  # "full" | "zero" | "gap"
+    seed: list[dict[str, Any]] = field(default_factory=list)
+    gap_entities: list[str] = field(default_factory=list)
+    gap_dimensions: list[str] = field(default_factory=list)
+    reuse_meta: dict[str, Any] = field(default_factory=dict)
+
+
 class ResearchAgent(BaseAgent[ResearchInput, ResearchOutput]):
     """Research Agent — multi-source evidence collection.
 
@@ -73,6 +85,13 @@ class ResearchAgent(BaseAgent[ResearchInput, ResearchOutput]):
         self._partial_task_id: str = ""
         self._last_cap_meta: dict[str, Any] = {}
         self._last_freshness_meta: dict[str, Any] = {}
+        # Step 2B: seed evidence to merge after gap search
+        self._reuse_seed_dicts: list[dict[str, Any]] = []
+        self._reuse_prep_meta: dict[str, Any] = {}
+        self._gap_search_active: bool = False
+        self._gap_entities: list[str] = []
+        self._gap_dimensions: list[str] = []
+
 
     def has_partial_results(self) -> bool:
         return bool(self._partial_evidence_items or self._partial_all_results)
@@ -292,6 +311,11 @@ class ResearchAgent(BaseAgent[ResearchInput, ResearchOutput]):
         self._partial_fallback_meta = {}
         self._partial_task_id = ctx.task_id or ""
         self._last_cap_meta = {}
+        self._reuse_seed_dicts = []
+        self._reuse_prep_meta = {}
+        self._gap_search_active = False
+        self._gap_entities = []
+        self._gap_dimensions = []
 
         def _time_left() -> float:
             return max(0.0, deadline - datetime.utcnow().timestamp())
@@ -318,6 +342,320 @@ class ResearchAgent(BaseAgent[ResearchInput, ResearchOutput]):
         except Exception:
             pass
 
+    @staticmethod
+    def _source_results_usable(results: list[Any] | None) -> bool:
+        """True when at least one source returned success with non-empty items."""
+        for r in results or []:
+            if getattr(r, "status", None) == "success" and getattr(r, "items", None):
+                return True
+        return False
+
+    def _try_zero_search_reuse(
+        self,
+        ctx: AgentContext,
+        input_data: ResearchInput,
+    ) -> AgentResult | None:
+        """Step 2A: if history is sufficient, skip Search + Extraction."""
+        prep = self._evaluate_reuse_prep(ctx, input_data)
+        self._reuse_seed_dicts = []
+        self._reuse_prep_meta = dict(prep.reuse_meta)
+        self._gap_search_active = False
+
+        if prep.mode == "zero":
+            return self._finish_zero_search_reuse(ctx, input_data, prep)
+        if prep.mode == "gap":
+            self._reuse_seed_dicts = list(prep.seed)
+            self._gap_search_active = True
+            self._gap_entities = list(prep.gap_entities)
+            self._gap_dimensions = list(prep.gap_dimensions)
+            self._reuse_prep_meta = {
+                **dict(prep.reuse_meta),
+                "skipped_search": False,
+                "gap_search": True,
+                "sufficient": False,
+            }
+        return None
+
+    def _evaluate_reuse_prep(
+        self,
+        ctx: AgentContext,
+        input_data: ResearchInput,
+    ) -> _ReusePrep:
+        """Decide full / zero / gap from EvidenceReuseService (no Search)."""
+        project_id = str(getattr(input_data, "project_id", None) or "").strip()
+        if not project_id:
+            return _ReusePrep(mode="full", reuse_meta={"skipped_search": False})
+
+        from app.application.services.evidence_reuse import (
+            CurrentReuseRequest,
+            EvidenceReuseService,
+            scope_to_canonical_zh,
+        )
+
+        plan = input_data.research_plan if isinstance(input_data.research_plan, dict) else {}
+        scope = list(plan.get("analysis_scope") or []) if plan else []
+        competitors = list(getattr(input_data, "competitors", None) or [])
+        if not competitors and input_data.competitor_company:
+            buf = str(input_data.competitor_company)
+            for sep in ("、", ",", "/", "|", ";"):
+                buf = buf.replace(sep, "、")
+            competitors = [p.strip() for p in buf.split("、") if p.strip()]
+
+        request = CurrentReuseRequest(
+            project_id=project_id,
+            our_company=input_data.our_company or "",
+            competitors=competitors,
+            analysis_scope=scope,
+            workflow_kind=getattr(input_data, "workflow_kind", None),
+            evidence_max_age_months=int(
+                getattr(input_data, "evidence_max_age_months", 48) or 48
+            ),
+            max_undated_evidence_items=int(
+                getattr(input_data, "max_undated_evidence_items", 5) or 5
+            ),
+            current_task_id=ctx.task_id or None,
+        )
+
+        try:
+            result = EvidenceReuseService().evaluate(request)
+        except Exception:
+            logger.exception("evidence reuse evaluation failed; falling back to full research")
+            return _ReusePrep(mode="full", reuse_meta={"skipped_search": False})
+
+        meta = dict(result.reuse_meta or {})
+        if result.reuse_disabled:
+            return _ReusePrep(
+                mode="full",
+                reuse_meta={**meta, "reuse_disabled": True, "skipped_search": False},
+            )
+        if result.sufficient and result.reusable_evidence:
+            return _ReusePrep(
+                mode="zero",
+                seed=list(result.reusable_evidence),
+                reuse_meta={**meta, "skipped_search": True, "sufficient": True},
+            )
+
+        # Case B: no reusable seed → full Research (do not invent gap search)
+        if not result.reusable_evidence:
+            return _ReusePrep(
+                mode="full",
+                gap_entities=list(result.gap_entities),
+                gap_dimensions=list(result.gap_dimensions),
+                reuse_meta={**meta, "skipped_search": False, "gap_search": False},
+            )
+
+        gaps_e = list(result.gap_entities)
+        gaps_d = list(result.gap_dimensions)
+        if not gaps_e and not gaps_d:
+            return _ReusePrep(
+                mode="full",
+                seed=list(result.reusable_evidence),
+                reuse_meta={**meta, "skipped_search": False},
+            )
+
+        # Unmapped dimension gaps without entity gaps → cannot safely narrow
+        if gaps_d and not gaps_e:
+            mappable = [d for d in gaps_d if scope_to_canonical_zh(d)]
+            if not mappable:
+                return _ReusePrep(
+                    mode="full",
+                    seed=list(result.reusable_evidence),
+                    gap_entities=gaps_e,
+                    gap_dimensions=gaps_d,
+                    reuse_meta={
+                        **meta,
+                        "skipped_search": False,
+                        "gap_search": False,
+                        "gap_fallback_full": True,
+                        "gap_fallback_reason": "unmapped_dimensions",
+                    },
+                )
+            gaps_d = mappable
+
+        return _ReusePrep(
+            mode="gap",
+            seed=list(result.reusable_evidence),
+            gap_entities=gaps_e,
+            gap_dimensions=gaps_d,
+            reuse_meta={
+                **meta,
+                "skipped_search": False,
+                "gap_search": True,
+                "sufficient": False,
+                "gap_entities": gaps_e,
+                "gap_dimensions": gaps_d,
+            },
+        )
+
+    def _finish_zero_search_reuse(
+        self,
+        ctx: AgentContext,
+        input_data: ResearchInput,
+        prep: _ReusePrep,
+    ) -> AgentResult | None:
+        from app.application.services.evidence_reuse import merge_and_renumber_evidence
+
+        renumbered = merge_and_renumber_evidence(prep.seed, [])
+        evidence_items = self._dicts_to_evidence_items(renumbered)
+        if not evidence_items:
+            return None
+
+        self._partial_evidence_items = list(evidence_items)
+        self._partial_all_results = []
+        self._ensure_default_quality_scores(evidence_items)
+
+        bundle, quality = self._build_output(input_data, evidence_items, [])
+        quality.sources_attempted = 0
+        quality.sources_succeeded = 0
+
+        reuse_meta = {
+            **dict(prep.reuse_meta or {}),
+            "skipped_search": True,
+            "sufficient": True,
+            "reused_count": len(evidence_items),
+        }
+        try:
+            setattr(quality, "reuse_meta", reuse_meta)
+        except Exception:
+            pass
+
+        self._touch_research_progress(
+            ctx.task_id,
+            40.0,
+            "已复用历史证据，跳过检索",
+        )
+
+        phase_record = {
+            "phase": Phase.RESEARCHING.value,
+            "duration_ms": 0,
+            "status": "completed",
+            "selection_plan": [],
+            "selection_tasks": [],
+            "source_types_selected": [],
+            "tasks_executed": 0,
+            "sources_called": 0,
+            "sources_succeeded": 0,
+            "total_results": 0,
+            "evidence_count": len(evidence_items),
+            "llm_generated": False,
+            "skipped_search": True,
+            "reuse_meta": reuse_meta,
+        }
+        return AgentResult(
+            success=True,
+            output=ResearchOutput(evidence_bundle=bundle, quality_report=quality),
+            phase_record=phase_record,
+        )
+
+    @staticmethod
+    def _build_gap_keywords(
+        input_data: ResearchInput,
+        *,
+        gap_entities: list[str],
+        gap_dimensions: list[str],
+        research_plan: dict[str, Any] | None,
+    ) -> list[str]:
+        """Minimal keyword set for gap search — no new Planner."""
+        from app.application.services.evidence_reuse import entity_alias_forms
+        from app.application.services.intent_entities import sanitize_search_keywords
+
+        existing = source_router._collect_keywords(research_plan) if research_plan else []
+        product = (input_data.product or "").strip()
+
+        focus_entities = [e for e in gap_entities if (e or "").strip()]
+        if not focus_entities:
+            # Dimension-only gap: keep both sides but only for gap dims
+            focus_entities = [
+                e for e in [input_data.our_company, *(input_data.competitors or [])]
+                if (e or "").strip()
+            ]
+            if not focus_entities and input_data.competitor_company:
+                focus_entities = [input_data.competitor_company]
+
+        focus_dims = [d for d in gap_dimensions if (d or "").strip()]
+        if not focus_dims:
+            plan = research_plan if isinstance(research_plan, dict) else {}
+            focus_dims = list(plan.get("analysis_scope") or [])[:3]
+
+        synth: list[str] = []
+        for ent in focus_entities[:4]:
+            for dim in focus_dims[:3]:
+                synth.append(f"{ent} {dim}")
+            if product:
+                synth.append(f"{ent} {product}")
+            synth.append(ent)
+
+        # Keep existing planner keywords that mention gap entities or dimensions
+        alias_blob = set()
+        for ent in gap_entities:
+            alias_blob |= set(entity_alias_forms(ent))
+        filtered: list[str] = []
+        for kw in existing:
+            kw_s = str(kw or "")
+            if gap_entities and not any(a and a in kw_s for a in alias_blob):
+                if gap_dimensions and any(d and d in kw_s for d in gap_dimensions):
+                    filtered.append(kw_s)
+                continue
+            if gap_dimensions and not any(d and d in kw_s for d in gap_dimensions):
+                if gap_entities and any(a and a in kw_s for a in alias_blob):
+                    filtered.append(kw_s)
+                continue
+            filtered.append(kw_s)
+
+        return sanitize_search_keywords(synth + filtered)[:10]
+
+    def _gap_route_dimensions(
+        self,
+        input_data: ResearchInput,
+        gap_dimensions: list[str],
+        gap_entities: list[str],
+    ) -> list[str]:
+        """Dimensions fed to llm_router / source_selection for gap search."""
+        if gap_dimensions:
+            return list(gap_dimensions)
+        plan = input_data.research_plan if isinstance(input_data.research_plan, dict) else {}
+        # Entity-only gap: keep full scope so router still has dimensions
+        return list(plan.get("analysis_scope") or [])
+
+    @staticmethod
+    def _dicts_to_evidence_items(rows: list[dict[str, Any]]) -> list[EvidenceItemDTO]:
+        items: list[EvidenceItemDTO] = []
+        fields = set(EvidenceItemDTO.model_fields.keys())
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            payload = {
+                k: v for k, v in row.items()
+                if k in fields and not str(k).startswith("_")
+            }
+            if not payload.get("source"):
+                payload["source"] = "reused"
+            if payload.get("content") is None:
+                payload["content"] = ""
+            try:
+                items.append(EvidenceItemDTO.model_validate(payload))
+            except Exception:
+                continue
+        return items
+
+    def _merge_seed_with_new_evidence(
+        self,
+        new_items: list[EvidenceItemDTO],
+    ) -> list[EvidenceItemDTO]:
+        """Merge historical seed + new extracted items; URL dedupe; renumber."""
+        if not self._reuse_seed_dicts:
+            return new_items
+        from app.application.services.evidence_reuse import merge_and_renumber_evidence
+
+        new_dicts = []
+        for e in new_items:
+            if hasattr(e, "model_dump"):
+                new_dicts.append(e.model_dump())
+            else:
+                new_dicts.append(dict(e))
+        merged = merge_and_renumber_evidence(self._reuse_seed_dicts, new_dicts)
+        return self._dicts_to_evidence_items(merged)
+
     async def _run_research(
         self,
         ctx: AgentContext,
@@ -328,14 +666,45 @@ class ResearchAgent(BaseAgent[ResearchInput, ResearchOutput]):
         _time_left,
     ) -> AgentResult:
         """Core research flow (separated so CancelledError propagates cleanly)."""
+        # Evidence Reuse V1 Step 2A/2B: zero-search or prepare gap narrowing.
+        reuse_hit = self._try_zero_search_reuse(ctx, input_data)
+        if reuse_hit is not None:
+            return reuse_hit
+
+        plan_dict = input_data.research_plan if isinstance(input_data.research_plan, dict) else {}
+        route_dimensions = _dget(plan_dict, "analysis_scope", []) or []
+        plan_keywords = (
+            source_router._collect_keywords(input_data.research_plan)
+            if input_data.research_plan
+            else []
+        )
+        gap_keywords: list[str] | None = None
+        if self._gap_search_active:
+            route_dimensions = self._gap_route_dimensions(
+                input_data,
+                self._gap_dimensions,
+                self._gap_entities,
+            )
+            gap_keywords = self._build_gap_keywords(
+                input_data,
+                gap_entities=self._gap_entities,
+                gap_dimensions=self._gap_dimensions,
+                research_plan=plan_dict,
+            )
+            self._touch_research_progress(
+                ctx.task_id,
+                22.0,
+                "缺口补搜：仅检索缺失实体/维度",
+            )
+
         # Step 1: Build Source Selection Plan (LLM-driven with rule-based fallback)
-        if input_data.research_plan and _dget(input_data.research_plan, "analysis_scope", []):
+        if route_dimensions:
             try:
                 router_timeout = min(45.0, max(8.0, _time_left() * 0.25))
                 sel_plan = await asyncio.wait_for(
                     llm_router.route(
-                        dimensions=_dget(input_data.research_plan, "analysis_scope", []),
-                        keywords=source_router._collect_keywords(input_data.research_plan) if input_data.research_plan else [],
+                        dimensions=list(route_dimensions),
+                        keywords=list(gap_keywords or plan_keywords),
                         objective=objective,
                         task_id=ctx.task_id,
                     ),
@@ -346,8 +715,8 @@ class ResearchAgent(BaseAgent[ResearchInput, ResearchOutput]):
             except Exception as exc:
                 logger.warning("llm_router timed out/failed, using rule fallback: %s", exc)
                 sel_plan = source_selection.build_plan(
-                    dimensions=_dget(input_data.research_plan, "analysis_scope", []),
-                    keywords=source_router._collect_keywords(input_data.research_plan) if input_data.research_plan else [],
+                    dimensions=list(route_dimensions),
+                    keywords=list(gap_keywords or plan_keywords),
                     objective=objective,
                 )
         else:
@@ -380,7 +749,12 @@ class ResearchAgent(BaseAgent[ResearchInput, ResearchOutput]):
         exec_plan = None
         if sel_plan:
             # Build SourceExecutionPlan compatible with execute_plan
+            from app.application.services.intent_entities import (
+                compose_entity_user_search_query,
+                sanitize_search_keywords,
+            )
             from app.infrastructure.tools.dimension_router import SourceExecutionPlan
+
             source_types = list(sel_plan.all_source_types or [])
             # Prefer web first, then truncate to mode budget.
             preferred = ["web", "news", "app_store", "social"]
@@ -388,17 +762,98 @@ class ResearchAgent(BaseAgent[ResearchInput, ResearchOutput]):
                 s for s in source_types if s not in preferred
             ]
             source_types = ordered[:max_source_types] or ["web"]
+            base_keywords = list(sel_plan.tasks[0].keywords) if sel_plan.tasks else []
+            if self._gap_search_active and gap_keywords:
+                # Gap path: do not boost with full-company composed query (would widen search).
+                keywords = list(gap_keywords)
+                composed = " ".join(gap_keywords[:5])
+            else:
+                # Prefer 「公司+产品+用户要求」as first-round boost so sparse planner
+                # keywords (e.g. only company+product) still carry the user topic.
+                composed = compose_entity_user_search_query(
+                    company=input_data.our_company,
+                    product=input_data.product,
+                    user_query=getattr(input_data, "user_query", "") or "",
+                    objective=objective,
+                )
+                keywords = sanitize_search_keywords(
+                    base_keywords + (composed.split() if composed else []),
+                    company=input_data.our_company or None,
+                ) or base_keywords
             exec_plan = SourceExecutionPlan(
-                dimensions=sel_plan.dimensions,
+                dimensions=list(sel_plan.dimensions or route_dimensions or []),
                 source_types=source_types,
-                keywords=sel_plan.tasks[0].keywords if sel_plan.tasks else [],
+                keywords=keywords,
                 objective=sel_plan.objective,
                 dimension_mapping={t.dimension: t.sources for t in sel_plan.tasks},
             )
             all_results = await source_router.execute_plan(exec_plan, context=context)
+            # On empty/failed first pass: retry web with 公司+产品+用户要求内容
+            # (never a hardcoded topic like「商业发展」). Gap path retries with gap keywords only.
+            if not self._source_results_usable(all_results) and _time_left() >= 8.0:
+                if self._gap_search_active and gap_keywords:
+                    retry_kw = " ".join(gap_keywords[:6])
+                else:
+                    retry_kw = composed or compose_entity_user_search_query(
+                        company=input_data.our_company,
+                        product=input_data.product,
+                        user_query=getattr(input_data, "user_query", "") or "",
+                        objective=objective,
+                    )
+                if retry_kw:
+                    first_err = next(
+                        (
+                            getattr(r, "error", None) or getattr(r, "status", "")
+                            for r in all_results
+                            if getattr(r, "status", None) != "success"
+                            or not getattr(r, "items", None)
+                        ),
+                        "empty",
+                    )
+                    logger.warning(
+                        "web search empty/failed (%s); retrying with entity+user query: %s",
+                        first_err,
+                        retry_kw[:120],
+                    )
+                    from app.infrastructure.tools.dimension_router import SourceExecutionPlan as _SEP
+
+                    retry_plan = _SEP(
+                        dimensions=list(exec_plan.dimensions or []),
+                        source_types=["web"],
+                        keywords=retry_kw.split(),
+                        objective=objective,
+                        dimension_mapping={},
+                    )
+                    retry_results = await source_router.execute_plan(retry_plan, context=context)
+                    if self._source_results_usable(retry_results):
+                        all_results = retry_results
+                    elif _time_left() >= 8.0:
+                        # Secondary: news with the same composed query
+                        news_plan = _SEP(
+                            dimensions=list(exec_plan.dimensions or []),
+                            source_types=["news"],
+                            keywords=retry_kw.split(),
+                            objective=objective,
+                            dimension_mapping={},
+                        )
+                        news_results = await source_router.execute_plan(news_plan, context=context)
+                        if self._source_results_usable(news_results):
+                            all_results = news_results
         else:
-            # Fallback: no research plan, use legacy task-based routing
-            all_results = await source_router.search_many([], context=context)
+            # Fallback: no research plan / empty dimensions
+            if self._gap_search_active and gap_keywords:
+                from app.infrastructure.tools.dimension_router import SourceExecutionPlan as _SEP
+
+                exec_plan = _SEP(
+                    dimensions=list(route_dimensions or self._gap_dimensions or []),
+                    source_types=["web"],
+                    keywords=list(gap_keywords),
+                    objective=objective,
+                    dimension_mapping={},
+                )
+                all_results = await source_router.execute_plan(exec_plan, context=context)
+            else:
+                all_results = await source_router.search_many([], context=context)
 
         self._partial_all_results = list(all_results)
 
@@ -474,6 +929,10 @@ class ResearchAgent(BaseAgent[ResearchInput, ResearchOutput]):
         evidence_items = await self._apply_date_and_freshness_pipeline(
             evidence_items, input_data,
         )
+        # Step 2B: merge historical reusable seed + new gap evidence
+        if self._gap_search_active and self._reuse_seed_dicts:
+            evidence_items = self._merge_seed_with_new_evidence(evidence_items)
+            self._ensure_default_quality_scores(evidence_items)
         self._partial_evidence_items = list(evidence_items)
         bundle, quality = self._build_output(
             input_data, evidence_items, all_results,
@@ -499,6 +958,26 @@ class ResearchAgent(BaseAgent[ResearchInput, ResearchOutput]):
             "evidence_count": len(evidence_items),
             "llm_generated": True,
         }
+        if self._reuse_prep_meta:
+            phase_record["reuse_meta"] = {
+                **dict(self._reuse_prep_meta),
+                "reused_count": len(self._reuse_seed_dicts) if self._gap_search_active else self._reuse_prep_meta.get("reused_count", 0),
+                "new_evidence_count": max(
+                    0,
+                    len(evidence_items) - (len(self._reuse_seed_dicts) if self._gap_search_active else 0),
+                ),
+                "gap_search": bool(self._gap_search_active),
+                "gap_entities": list(self._gap_entities),
+                "gap_dimensions": list(self._gap_dimensions),
+                "route_dimensions": list(route_dimensions) if self._gap_search_active else None,
+                "gap_keywords": list(gap_keywords or []) if self._gap_search_active else None,
+            }
+            try:
+                setattr(quality, "reuse_meta", phase_record["reuse_meta"])
+            except Exception:
+                pass
+        if self._gap_search_active:
+            phase_record["gap_search"] = True
         if cap_meta:
             phase_record.update(cap_meta)
         if freshness_meta:
@@ -1028,6 +1507,8 @@ class ResearchAgent(BaseAgent[ResearchInput, ResearchOutput]):
                         "undated_dropped_count",
                         "date_enrichment_attempted",
                         "date_enrichment_succeeded",
+                        "stale_fallback_used",
+                        "stale_fallback_count",
                     )
                 },
             },
@@ -1059,7 +1540,7 @@ class ResearchAgent(BaseAgent[ResearchInput, ResearchOutput]):
             total_evidence_items=len(evidence_items),
             coverage_by_dimension=coverage_by_dimension,
             avg_confidence=round(avg_conf, 2),
-            fallback_used=False,
+            fallback_used=bool(freshness_meta.get("stale_fallback_used")),
             missing_data_warnings=(
                 ["未配置任何搜索源 API Key (TAVILY_API_KEY)，无法执行真实搜索"]
                 if not evidence_items and no_key_count > 0
@@ -1071,7 +1552,21 @@ class ResearchAgent(BaseAgent[ResearchInput, ResearchOutput]):
             evidence_cutoff_date=str(freshness_meta.get("evidence_cutoff_date") or ""),
             date_enrichment_attempted=int(freshness_meta.get("date_enrichment_attempted") or 0),
             date_enrichment_succeeded=int(freshness_meta.get("date_enrichment_succeeded") or 0),
+            stale_fallback_used=bool(freshness_meta.get("stale_fallback_used")),
+            stale_fallback_count=int(freshness_meta.get("stale_fallback_count") or 0),
         )
+        stale_warn = str(freshness_meta.get("stale_fallback_warning") or "").strip()
+        if quality.stale_fallback_used and stale_warn:
+            quality.missing_data_warnings = list(quality.missing_data_warnings) + [stale_warn]
+        elif quality.stale_fallback_used and quality.stale_fallback_count > 0:
+            from app.infrastructure.tools.evidence_freshness import stale_fallback_warning
+
+            quality.missing_data_warnings = list(quality.missing_data_warnings) + [
+                stale_fallback_warning(
+                    cutoff=quality.evidence_cutoff_date or "默认时效窗口",
+                    count=quality.stale_fallback_count,
+                ),
+            ]
         cap_meta = getattr(self, "_last_cap_meta", {}) or {}
         if cap_meta.get("evidence_truncated_count"):
             quality.missing_data_warnings = list(quality.missing_data_warnings) + [

@@ -12,7 +12,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
               <path d="M2 17l10 5 10-5" />
               <path d="M2 12l10 5 10-5" />
             </svg>
-            竞品分析助手
+            竞品情报 Agent 工作台
           </Link>
           <WorkspaceNav />
         </div>

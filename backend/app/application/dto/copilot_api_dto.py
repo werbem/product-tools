@@ -135,6 +135,15 @@ class ConversationMemorySummaryDTO(BaseModel):
     updated_at: str
 
 
+class PeerEdgeDTO(BaseModel):
+    a: str
+    b: str
+    product: str | None = None
+    source_task_id: str | None = None
+    source_type: str = "report"
+    updated_at: str
+
+
 class ProjectMemoryResponse(BaseModel):
     project_id: str
     entities: ProjectMemoryEntitiesDTO
@@ -146,6 +155,7 @@ class ProjectMemoryResponse(BaseModel):
     last_task_id: str | None = None
     last_workflow_type: str | None = None
     conversation_summaries: dict[str, ConversationMemorySummaryDTO] = Field(default_factory=dict)
+    peer_edges: list[PeerEdgeDTO] = Field(default_factory=list)
     schema_version: int = 1
     updated_at: str
 

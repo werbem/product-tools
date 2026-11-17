@@ -82,6 +82,10 @@ class Settings(BaseSettings):
     openai_model: str = "gpt-4o-mini"  # from OPENAI_MODEL
     openai_base_url: str = ""  # from OPENAI_BASE_URL
 
+    # Embeddings (Phase 4b) — OpenAI-compatible; empty → keyword-only search
+    embedding_model: str = "text-embedding-3-small"  # EMBEDDING_MODEL
+    embedding_timeout_s: float = 8.0  # EMBEDDING_TIMEOUT_S
+
     # Tavily Search — reads from TAVILY_API_KEY env var
     tavily_api_key: str = ""  # from TAVILY_API_KEY
     # Legacy / alternative — reads from LLM_API_KEY (kept for backward compat)
@@ -98,6 +102,20 @@ class Settings(BaseSettings):
 
     # Demo mode — set DEMO_MODE=true for public showcase without API keys
     demo_mode: bool = DEMO_MODE_DEFAULT  # from DEMO_MODE env var
+
+    # Decision architecture (Phase 5): off | shadow | on
+    # off = legacy Router only (default); shadow = log planner stack; on = use Thin Router
+    decision_planner_routing: str = "off"
+
+    @field_validator("decision_planner_routing", mode="before")
+    @classmethod
+    def _coerce_decision_planner_routing(cls, v: object) -> str:
+        if v is None or (isinstance(v, str) and v.strip() == ""):
+            return "off"
+        text = str(v).strip().lower()
+        if text not in ("off", "shadow", "on"):
+            return "off"
+        return text
 
     @field_validator("demo_mode", mode="before")
     @classmethod

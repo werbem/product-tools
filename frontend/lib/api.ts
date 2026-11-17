@@ -32,7 +32,8 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
       ...options?.headers,
     },
   });
-  if (!res.ok) {
+  // 202 Accepted is not a successful payload for our JSON APIs (e.g. report still generating)
+  if (!res.ok || res.status === 202) {
     const body = await res.text();
     let detail: unknown = body;
     try {
